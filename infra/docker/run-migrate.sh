@@ -15,14 +15,21 @@ source "$SCRIPT_DIR/lib/env.sh"
 
 env_load_file "$ENV_FILE" \
   CR_IMAGE_MIGRATE POSTGRES_PASSWORD POSTGRES_DB RACHAO_BACKEND_NETWORK DATABASE_URL \
-  DATABASE_USER DATABASE_HOST DATABASE_PORT
+  DATABASE_USER DATABASE_HOST DATABASE_PORT SUPABASE_STACK_NAME
+
+# Se DATABASE_URL veio do .env com host "db", remonta com host do Swarm
+if [[ "${DATABASE_URL:-}" == *"@db:"* ]]; then
+  unset DATABASE_URL
+fi
 
 env_ensure_database_url
 
 MIGRATE_IMAGE="${CR_IMAGE_MIGRATE:-rachao-migrate:latest}"
 NETWORK="${RACHAO_BACKEND_NETWORK:-rachao-backend}"
 
-echo "==> Prisma migrate/push na rede $NETWORK"
+env_wait_for_postgres "$NETWORK"
+
+echo "==> Prisma migrate/push (${DATABASE_URL%%@*}@***)"
 docker run --rm \
   --network "$NETWORK" \
   -e "DATABASE_URL=${DATABASE_URL}" \

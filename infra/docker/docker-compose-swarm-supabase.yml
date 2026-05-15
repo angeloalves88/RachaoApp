@@ -40,10 +40,11 @@ services:
       - -c
       - log_min_messages=fatal
     healthcheck:
-      test: ['CMD', 'pg_isready', '-U', 'postgres', '-h', 'localhost']
+      test: ['CMD', 'pg_isready', '-U', 'supabase_admin', '-h', 'localhost']
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 60s
     deploy:
       replicas: 1
       restart_policy:

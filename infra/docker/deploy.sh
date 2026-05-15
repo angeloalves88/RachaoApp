@@ -20,6 +20,13 @@ source "$SCRIPT_DIR/lib/env.sh"
 env_load_all "$ENV_FILE"
 env_ensure_database_url
 
+env_require_vars \
+  POSTGRES_PASSWORD JWT_SECRET ANON_KEY SERVICE_ROLE_KEY \
+  WEB_DOMAIN API_DOMAIN SUPABASE_DOMAIN \
+  SITE_URL API_EXTERNAL_URL SUPABASE_PUBLIC_URL
+
+echo "==> Variaveis OK (POSTGRES_PASSWORD: ${#POSTGRES_PASSWORD} caracteres)"
+
 echo "==> Rede overlay $BACKEND_NETWORK (se nao existir)"
 docker network inspect "$BACKEND_NETWORK" >/dev/null 2>&1 \
   || docker network create -d overlay --attachable "$BACKEND_NETWORK"
@@ -32,6 +39,8 @@ sleep 30
 
 echo "==> Migrate"
 "$SCRIPT_DIR/run-migrate.sh"
+
+env_require_vars DATABASE_URL
 
 echo "==> Stack App: $APP_STACK"
 docker stack deploy -c "$SCRIPT_DIR/docker-compose-swarm-app.yml" "$APP_STACK"

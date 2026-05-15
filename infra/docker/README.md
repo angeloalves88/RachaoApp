@@ -68,11 +68,14 @@ Imagens: `rachao-web:latest`, `rachao-api:latest`, `rachao-migrate:latest`.
 # Rede interna
 docker network create -d overlay --attachable rachao-backend
 
-# Carregar .env no shell (ou use ./deploy.sh)
+# Preferir scripts que carregam o .env (evita Postgres sem POSTGRES_PASSWORD):
+chmod +x stack-deploy-supabase.sh stack-deploy-app.sh
+./stack-deploy-supabase.sh
+
+# Ou manual — OBRIGATORIO carregar .env no MESMO terminal antes do deploy:
 source ./lib/env.sh
 env_load_all .env
-
-# Supabase
+echo "senha tem ${#POSTGRES_PASSWORD} chars"   # deve ser > 0
 docker stack deploy -c docker-compose-swarm-supabase.yml rachao-supabase
 
 # Aguardar Postgres (~30–60s)
@@ -82,7 +85,8 @@ docker stack services rachao-supabase
 ./run-migrate.sh
 
 # App
-docker stack deploy -c docker-compose-swarm-app.yml rachao-app
+source ./lib/env.sh && env_load_all .env && env_ensure_database_url
+./stack-deploy-app.sh
 ```
 
 ## 4. Verificacao
@@ -159,7 +163,9 @@ Configure no painel do provedor apontando para a **API**:
 |----------|------|
 | API `health/db` falha | Postgres ainda subindo; conferir `docker service logs rachao-supabase_db` |
 | Login "Failed to fetch" | `NEXT_PUBLIC_SUPABASE_URL` no build da imagem web; refazer `build-images.sh` |
-| Prisma P1013 invalid port | Senha com `$` ou `#` na URL; rode `env_ensure_database_url` (incluso no `deploy.sh` / `run-migrate.sh`) |
+| Prisma P1013 invalid port | Senha com `$` ou `#` na URL; rode `env_ensure_database_url` |
+| Prisma P1001 Can't reach db | Postgres `0/1` ou host errado; use `DATABASE_HOST=rachao-supabase_db`; veja logs do `_db` |
+| Postgres "password is not specified" | `docker stack deploy` sem `env_load_all .env`; use `./stack-deploy-supabase.sh` |
 | Servico 0/1 replicas | `docker service ps NOME_DO_SERVICO --no-trunc` e `docker service logs NOME --tail 50` |
 | CORS na API | `CORS_ORIGIN` usa `WEB_DOMAIN`; redeploy app stack |
 | Certificado SSL | Traefik + DNS corretos; labels `letsencryptresolver` |

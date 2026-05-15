@@ -74,11 +74,62 @@ env_ensure_database_url() {
 
   : "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD em infra/docker/.env}"
 
+  local stack="${SUPABASE_STACK_NAME:-rachao-supabase}"
   local user="${DATABASE_USER:-supabase_admin}"
-  local host="${DATABASE_HOST:-db}"
+  # No Swarm o DNS e <stack>_db; alias "db" nem sempre resolve em docker run
+  local host="${DATABASE_HOST:-${stack}_db}"
   local port="${DATABASE_PORT:-5432}"
   local db="${POSTGRES_DB:-postgres}"
   local enc_pass
   enc_pass=$(env_urlencode "$POSTGRES_PASSWORD")
   export DATABASE_URL="postgresql://${user}:${enc_pass}@${host}:${port}/${db}?schema=public"
+}
+
+# Aguarda Postgres na rede overlay (migrate / troubleshooting)
+env_wait_for_postgres() {
+  local network="${1:-${RACHAO_BACKEND_NETWORK:-rachao-backend}}"
+  local stack="${SUPABASE_STACK_NAME:-rachao-supabase}"
+  local hosts=()
+  [[ -n "${DATABASE_HOST:-}" ]] && hosts+=("$DATABASE_HOST")
+  hosts+=("${stack}_db" "db" "rachao-postgres")
+
+  echo "==> Aguardando Postgres na rede ${network}..."
+  local i host h
+  for i in $(seq 1 90); do
+    for h in "${hosts[@]}"; do
+      [[ -z "$h" ]] && continue
+      if docker run --rm --network "$network" busybox:1.36.1 sh -c "nc -z -w 2 $h 5432" 2>/dev/null; then
+        echo "    Postgres OK em: $h"
+        if [[ "${DATABASE_HOST:-}" != "$h" ]]; then
+          export DATABASE_HOST="$h"
+          unset DATABASE_URL
+          env_ensure_database_url
+        fi
+        return 0
+      fi
+    done
+    sleep 2
+  done
+
+  echo "ERRO: Postgres nao responde na rede ${network}."
+  echo "  docker stack services ${stack}"
+  echo "  docker service ps ${stack}_db --no-trunc"
+  echo "  docker service logs ${stack}_db --tail 80"
+  return 1
+}
+
+# Falha se alguma variavel obrigatoria estiver vazia (evita stack deploy sem POSTGRES_PASSWORD)
+env_require_vars() {
+  local v missing=()
+  for v in "$@"; do
+    if [[ -z "${!v:-}" ]]; then
+      missing+=("$v")
+    fi
+  done
+  if ((${#missing[@]} > 0)); then
+    echo "ERRO: variavel(is) vazia(s). Antes do stack deploy rode:"
+    echo "  source ./lib/env.sh && env_load_all .env"
+    printf '  - %s\n' "${missing[@]}"
+    exit 1
+  fi
 }
