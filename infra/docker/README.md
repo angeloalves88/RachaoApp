@@ -166,6 +166,7 @@ Configure no painel do provedor apontando para a **API**:
 | Prisma P1013 invalid port | Senha com `$` ou `#` na URL; rode `env_ensure_database_url` |
 | Prisma P1001 Can't reach db | Postgres `0/1` ou host errado; use `DATABASE_HOST=rachao-supabase_db`; veja logs do `_db` |
 | Postgres "password is not specified" | `docker stack deploy` sem `env_load_all .env`; use `./stack-deploy-supabase.sh` |
+| `password authentication failed` (auth_admin) | Volume init com senha fixa antiga; roles devem usar `POSTGRES_PASSWORD` — rode `./reset-postgres-volume.sh` e `./stack-deploy-supabase.sh` |
 | Servico 0/1 replicas | `docker service ps NOME_DO_SERVICO --no-trunc` e `docker service logs NOME --tail 50` |
 | CORS na API | `CORS_ORIGIN` usa `WEB_DOMAIN`; redeploy app stack |
 | Certificado SSL | Traefik + DNS corretos; labels `letsencryptresolver` |
