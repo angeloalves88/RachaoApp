@@ -1,0 +1,35 @@
+# Git e IDE
+.git
+.gitignore
+.idea
+.vscode
+
+# Dependencias e build (reinstalados na imagem)
+node_modules
+**/node_modules
+.next
+**/dist
+**/.turbo
+.pnpm-store
+
+# Env local (segredos injetados no Swarm/Portainer)
+.env
+.env.*
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Dados locais Supabase (volumes nomeados em producao)
+infra/supabase/volumes/db/data
+infra/supabase/volumes/storage
+
+# Docs e specs
+Prompt
+scripts/e2e/.venv
+coverage
+*.log
+
+# Vercel / OS
+.vercel
+.DS_Store
+Thumbs.db

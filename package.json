@@ -23,7 +23,10 @@
     "supabase:down": "docker compose --env-file infra/supabase/.env -f infra/supabase/docker-compose.yml down",
     "supabase:logs": "docker compose --env-file infra/supabase/.env -f infra/supabase/docker-compose.yml logs -f",
     "supabase:reset": "docker compose --env-file infra/supabase/.env -f infra/supabase/docker-compose.yml down -v",
-    "seed:boleiros": "pnpm --filter @rachao/web seed:boleiros"
+    "seed:boleiros": "pnpm --filter @rachao/web seed:boleiros",
+    "docker:build": "bash infra/docker/build-images.sh",
+    "docker:migrate": "bash infra/docker/run-migrate.sh",
+    "docker:deploy": "bash infra/docker/deploy.sh"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
