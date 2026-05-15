@@ -31,6 +31,8 @@ cp .env.production.example .env
 nano .env
 ```
 
+**Formato do `.env`:** valores com espacos, `$`, `#` ou `<` devem ir entre aspas duplas, por exemplo `POSTGRES_PASSWORD="minha$enha#1"` e `STUDIO_DEFAULT_PROJECT="RachaoApp Producao"`. O `docker stack deploy --env-file` aceita isso; os scripts `build-images.sh` e `run-migrate.sh` leem o arquivo de forma segura (sem `source`).
+
 **Obrigatorio alterar em producao:**
 
 - `POSTGRES_PASSWORD`, `JWT_SECRET`

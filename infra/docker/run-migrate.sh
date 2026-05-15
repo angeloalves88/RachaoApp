@@ -10,15 +10,19 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+# shellcheck source=lib/env.sh
+source "$SCRIPT_DIR/lib/env.sh"
+
+env_load_file "$ENV_FILE" \
+  CR_IMAGE_MIGRATE POSTGRES_PASSWORD POSTGRES_DB RACHAO_BACKEND_NETWORK
 
 MIGRATE_IMAGE="${CR_IMAGE_MIGRATE:-rachao-migrate:latest}"
 NETWORK="${RACHAO_BACKEND_NETWORK:-rachao-backend}"
+POSTGRES_DB="${POSTGRES_DB:-postgres}"
 
-DATABASE_URL="postgresql://supabase_admin:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-postgres}?schema=public"
+: "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD em infra/docker/.env}"
+
+DATABASE_URL="postgresql://supabase_admin:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public"
 
 echo "==> Prisma migrate/push na rede $NETWORK"
 docker run --rm \

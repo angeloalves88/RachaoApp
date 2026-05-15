@@ -6,12 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-fi
+# shellcheck source=lib/env.sh
+source "$SCRIPT_DIR/lib/env.sh"
+
+env_load_file "$ENV_FILE" \
+  CR_IMAGE_WEB CR_IMAGE_API CR_IMAGE_MIGRATE \
+  NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY \
+  NEXT_PUBLIC_API_URL NEXT_PUBLIC_APP_URL \
+  NEXT_PUBLIC_SUPORTE_EMAIL NEXT_PUBLIC_SUPORTE_WHATSAPP NEXT_PUBLIC_PWA_ENABLED
 
 WEB_IMAGE="${CR_IMAGE_WEB:-rachao-web:latest}"
 API_IMAGE="${CR_IMAGE_API:-rachao-api:latest}"
