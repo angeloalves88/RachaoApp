@@ -1,5 +1,3 @@
-version: '3.8'
-
 # =============================================================================
 # RachaoApp — Web (Next.js) + API (Fastify) — Docker Swarm + Traefik
 #

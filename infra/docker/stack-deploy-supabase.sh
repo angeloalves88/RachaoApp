@@ -23,21 +23,21 @@ docker network inspect "$BACKEND_NETWORK" >/dev/null 2>&1 \
   || docker network create -d overlay --attachable "$BACKEND_NETWORK"
 
 # Gera YAML com variaveis ja substituidas (Swarm antigo as vezes ignora ${VAR} do shell)
+COMPOSE_DEPLOY="$COMPOSE_FILE"
 if docker compose version >/dev/null 2>&1; then
   echo "==> Resolvendo compose (docker compose config)..."
-  docker compose -f "$COMPOSE_FILE" config > "$RESOLVED_FILE"
-  COMPOSE_DEPLOY="$RESOLVED_FILE"
+  if docker compose -f "$COMPOSE_FILE" config > "$RESOLVED_FILE" 2>/dev/null; then
+    COMPOSE_DEPLOY="$RESOLVED_FILE"
+    if grep -q 'POSTGRES_PASSWORD: ""' "$RESOLVED_FILE" 2>/dev/null; then
+      echo "ERRO: POSTGRES_PASSWORD vazio no compose resolvido." >&2
+      exit 1
+    fi
+  else
+    echo "AVISO: docker compose config falhou; usando YAML + variaveis do shell."
+    rm -f "$RESOLVED_FILE"
+  fi
 else
   echo "AVISO: docker compose nao encontrado; usando YAML com interpolacao do shell."
-  COMPOSE_DEPLOY="$COMPOSE_FILE"
-fi
-
-# Confere se POSTGRES_PASSWORD entrou no servico db
-if [[ -f "$RESOLVED_FILE" ]] && ! grep -q "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" "$RESOLVED_FILE" 2>/dev/null; then
-  if ! grep -A2 "POSTGRES_PASSWORD:" "$RESOLVED_FILE" | grep -qv 'POSTGRES_PASSWORD: ""'; then
-    echo "ERRO: POSTGRES_PASSWORD vazio no compose resolvido. Abortando." >&2
-    exit 1
-  fi
 fi
 
 docker stack deploy -c "$COMPOSE_DEPLOY" "$STACK"
