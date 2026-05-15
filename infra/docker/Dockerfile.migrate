@@ -16,5 +16,5 @@ COPY tsconfig.base.json ./
 
 ENV NODE_ENV=production
 
-# migrate deploy quando houver migrations; senao db push (estado atual do repo)
-CMD ["sh", "-c", "pnpm --filter @rachao/db exec prisma generate && (pnpm --filter @rachao/db exec prisma migrate deploy || pnpm --filter @rachao/db exec prisma db push)"]
+# Sem pasta migrations no repo: db push. Com migrations: migrate deploy.
+CMD ["sh", "-c", "cd packages/db && pnpm exec prisma generate && if [ -d prisma/migrations ] && [ -n \"$(ls -A prisma/migrations 2>/dev/null)\" ]; then pnpm exec prisma migrate deploy; else pnpm exec prisma db push; fi"]

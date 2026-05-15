@@ -17,8 +17,8 @@ env_load_file "$ENV_FILE" \
   CR_IMAGE_MIGRATE POSTGRES_PASSWORD POSTGRES_DB RACHAO_BACKEND_NETWORK DATABASE_URL \
   DATABASE_USER DATABASE_HOST DATABASE_PORT SUPABASE_STACK_NAME
 
-# Se DATABASE_URL veio do .env com host "db", remonta com host do Swarm
-if [[ "${DATABASE_URL:-}" == *"@db:"* ]]; then
+# Remonta URL com host do Swarm (db / rachao-supabase_db)
+if [[ "${DATABASE_URL:-}" == *"@db:"* ]] || [[ "${DATABASE_URL:-}" == *"@rachao-supabase_db:"* ]]; then
   unset DATABASE_URL
 fi
 

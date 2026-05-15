@@ -23,7 +23,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/api ./apps/api
 COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
-RUN pnpm db:generate && pnpm --filter @rachao/api build
+RUN pnpm db:generate && pnpm --filter @rachao/api build \
+  && test -f apps/api/dist/apps/api/src/server.js
 
 FROM base AS runner
 ENV NODE_ENV=production
@@ -44,7 +45,10 @@ USER rachao
 WORKDIR /app/apps/api
 EXPOSE 3333
 
+# tsc (monorepo) emite em dist/apps/api/src/ — nao em dist/server.js
+ENV API_ENTRY=dist/apps/api/src/server.js
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://127.0.0.1:3333/health || exit 1
 
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/apps/api/src/server.js"]
