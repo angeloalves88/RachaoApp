@@ -3,82 +3,30 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pause, Play, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  type CronoState,
+  elapsedMs,
+  formatCronoMs,
+  loadCronoState,
+  saveCronoState,
+} from '@/lib/cronometro-local';
 
 const ALERTA_FINAL_MS = 2 * 60 * 1000;
-
-interface CronoState {
-  modo: 'regressivo' | 'progressivo';
-  duracaoMs: number;
-  rodando: boolean;
-  /** ms acumulados quando pausado (epoch parcial). */
-  acumuladoMs: number;
-  /** Date.now() quando iniciou o ciclo atual. */
-  iniciadoEm: number | null;
-}
 
 interface Props {
   partidaId: string;
   tempoTotalMin: number;
-  /** Callback quando o cronômetro tem um minuto válido (para pré-preencher modais). */
   onMinutoChange?: (minuto: number) => void;
 }
 
-const DEFAULT_MODO: CronoState['modo'] = 'regressivo';
-
-function storageKey(partidaId: string): string {
-  return `aovivo:cron:${partidaId}`;
-}
-
-function loadState(partidaId: string, tempoTotalMin: number): CronoState {
-  const fallback: CronoState = {
-    modo: DEFAULT_MODO,
-    duracaoMs: tempoTotalMin * 60 * 1000,
-    rodando: false,
-    acumuladoMs: 0,
-    iniciadoEm: null,
-  };
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const raw = window.localStorage.getItem(storageKey(partidaId));
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<CronoState>;
-    return {
-      modo: parsed.modo === 'progressivo' ? 'progressivo' : 'regressivo',
-      duracaoMs: typeof parsed.duracaoMs === 'number' ? parsed.duracaoMs : fallback.duracaoMs,
-      rodando: !!parsed.rodando,
-      acumuladoMs: typeof parsed.acumuladoMs === 'number' ? parsed.acumuladoMs : 0,
-      iniciadoEm: typeof parsed.iniciadoEm === 'number' ? parsed.iniciadoEm : null,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function saveState(partidaId: string, state: CronoState): void {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(storageKey(partidaId), JSON.stringify(state));
-}
-
-function elapsedMs(state: CronoState): number {
-  if (!state.rodando || state.iniciadoEm == null) return state.acumuladoMs;
-  return state.acumuladoMs + (Date.now() - state.iniciadoEm);
-}
-
-function format(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-}
-
 export function Cronometro({ partidaId, tempoTotalMin, onMinutoChange }: Props) {
-  const [state, setState] = useState<CronoState>(() => loadState(partidaId, tempoTotalMin));
+  const [state, setState] = useState<CronoState>(() => loadCronoState(partidaId, tempoTotalMin));
   const [tick, setTick] = useState(0);
   const rafRef = useRef<number | null>(null);
   const buzzRef = useRef(false);
 
   useEffect(() => {
-    saveState(partidaId, state);
+    saveCronoState(partidaId, state);
   }, [partidaId, state]);
 
   useEffect(() => {
@@ -104,7 +52,6 @@ export function Cronometro({ partidaId, tempoTotalMin, onMinutoChange }: Props) 
     onMinutoChange?.(minutoAtual);
   }, [minutoAtual, onMinutoChange]);
 
-  // Vibração ao zerar (modo regressivo, primeira vez)
   useEffect(() => {
     if (state.modo === 'regressivo' && state.rodando && remaining === 0 && !buzzRef.current) {
       buzzRef.current = true;
@@ -157,7 +104,7 @@ export function Cronometro({ partidaId, tempoTotalMin, onMinutoChange }: Props) 
           }`}
           aria-live="polite"
         >
-          {format(display)}
+          {formatCronoMs(display)}
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">

@@ -48,6 +48,7 @@ import {
 } from '@/lib/offline-queue';
 import type { EscalacaoGetResponse } from '@/lib/escalacao-actions';
 import type { PartidaDetalhe } from '@/lib/types';
+import { clearActiveSession, setActiveSession, setPlacarSnapshot } from '@/lib/aovivo-session';
 import { Cronometro } from './cronometro';
 import { CartaoModal, GolModal, SubstituicaoModal, type TimeAovivo } from './modais';
 
@@ -137,6 +138,21 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     }
     return map;
   }, [eventos]);
+
+  useEffect(() => {
+    if (partida.status !== 'em_andamento') return;
+    setActiveSession({
+      partidaId: partida.id,
+      titulo: partida.grupo.nome,
+      tempoTotalMin: partida.tempoTotal,
+      times: times.map((t) => ({ id: t.id, nome: t.nome, cor: t.cor })),
+    });
+  }, [partida.id, partida.status, partida.grupo.nome, partida.tempoTotal, times]);
+
+  useEffect(() => {
+    if (partida.status !== 'em_andamento') return;
+    setPlacarSnapshot(partida.id, placarPorTime);
+  }, [partida.id, partida.status, placarPorTime]);
 
   const tryFlush = useCallback(async () => {
     if (flushingRef.current) return;
@@ -248,6 +264,7 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     setEncerrando(true);
     try {
       await encerrarPartida(partida.id);
+      clearActiveSession();
       toast.success('Partida encerrada!');
       router.push(`/partidas/${partida.id}/resumo`);
     } catch {

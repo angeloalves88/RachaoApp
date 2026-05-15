@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import { Logo } from '@/components/brand/logo';
 import { UserMenu } from '@/components/auth/user-menu';
 import { BottomNav } from '@/components/layout/bottom-nav';
+import { LiveMatchBar } from '@/components/layout/live-match-bar';
 import { NotificationsBell } from '@/components/layout/notifications-bell';
 import { Toaster } from '@/components/ui/toaster';
 import { requireOnboarded } from '@/lib/auth-server';
@@ -32,6 +33,7 @@ export default async function PresidenteLayout({
 
       <main className="flex-1 pb-24">{children}</main>
 
+      <LiveMatchBar />
       <BottomNav />
       <Toaster />
     </div>
