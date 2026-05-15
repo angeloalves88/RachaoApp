@@ -14,15 +14,13 @@ fi
 source "$SCRIPT_DIR/lib/env.sh"
 
 env_load_file "$ENV_FILE" \
-  CR_IMAGE_MIGRATE POSTGRES_PASSWORD POSTGRES_DB RACHAO_BACKEND_NETWORK
+  CR_IMAGE_MIGRATE POSTGRES_PASSWORD POSTGRES_DB RACHAO_BACKEND_NETWORK DATABASE_URL \
+  DATABASE_USER DATABASE_HOST DATABASE_PORT
+
+env_ensure_database_url
 
 MIGRATE_IMAGE="${CR_IMAGE_MIGRATE:-rachao-migrate:latest}"
 NETWORK="${RACHAO_BACKEND_NETWORK:-rachao-backend}"
-POSTGRES_DB="${POSTGRES_DB:-postgres}"
-
-: "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD em infra/docker/.env}"
-
-DATABASE_URL="postgresql://supabase_admin:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public"
 
 echo "==> Prisma migrate/push na rede $NETWORK"
 docker run --rm \

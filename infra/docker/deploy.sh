@@ -13,12 +13,19 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+# shellcheck source=lib/env.sh
+source "$SCRIPT_DIR/lib/env.sh"
+
+# docker stack deploy (versoes antigas) nao aceita --env-file; variaveis no shell.
+env_load_all "$ENV_FILE"
+env_ensure_database_url
+
 echo "==> Rede overlay $BACKEND_NETWORK (se nao existir)"
 docker network inspect "$BACKEND_NETWORK" >/dev/null 2>&1 \
   || docker network create -d overlay --attachable "$BACKEND_NETWORK"
 
 echo "==> Stack Supabase: $SUPABASE_STACK"
-docker stack deploy -c "$SCRIPT_DIR/docker-compose-swarm-supabase.yml" "$SUPABASE_STACK" --env-file "$ENV_FILE"
+docker stack deploy -c "$SCRIPT_DIR/docker-compose-swarm-supabase.yml" "$SUPABASE_STACK"
 
 echo "Aguardando Postgres (30s)..."
 sleep 30
@@ -27,7 +34,7 @@ echo "==> Migrate"
 "$SCRIPT_DIR/run-migrate.sh"
 
 echo "==> Stack App: $APP_STACK"
-docker stack deploy -c "$SCRIPT_DIR/docker-compose-swarm-app.yml" "$APP_STACK" --env-file "$ENV_FILE"
+docker stack deploy -c "$SCRIPT_DIR/docker-compose-swarm-app.yml" "$APP_STACK"
 
 echo "Deploy enviado. Verifique:"
 echo "  docker stack services $SUPABASE_STACK"

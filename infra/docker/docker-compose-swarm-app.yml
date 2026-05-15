@@ -24,7 +24,8 @@ services:
       CORS_ORIGIN: https://${WEB_DOMAIN}
       WEB_URL: https://${WEB_DOMAIN}
 
-      DATABASE_URL: postgresql://supabase_admin:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-postgres}?schema=public
+      # Definido por env_ensure_database_url (senha com $ # etc. precisa de URL-encode)
+      DATABASE_URL: ${DATABASE_URL}
 
       SUPABASE_URL: https://${SUPABASE_DOMAIN}
       SUPABASE_JWT_SECRET: ${JWT_SECRET}

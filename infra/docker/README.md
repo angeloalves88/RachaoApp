@@ -31,7 +31,7 @@ cp .env.production.example .env
 nano .env
 ```
 
-**Formato do `.env`:** valores com espacos, `$`, `#` ou `<` devem ir entre aspas duplas, por exemplo `POSTGRES_PASSWORD="minha$enha#1"` e `STUDIO_DEFAULT_PROJECT="RachaoApp Producao"`. O `docker stack deploy --env-file` aceita isso; os scripts `build-images.sh` e `run-migrate.sh` leem o arquivo de forma segura (sem `source`).
+**Formato do `.env`:** valores com espacos, `$`, `#` ou `<` devem ir entre aspas duplas, por exemplo `POSTGRES_PASSWORD="minha$enha#1"` e `STUDIO_DEFAULT_PROJECT="RachaoApp Producao"`. Os scripts carregam o arquivo de forma segura (sem `source`) antes do `docker stack deploy`.
 
 **Obrigatorio alterar em producao:**
 
@@ -68,8 +68,12 @@ Imagens: `rachao-web:latest`, `rachao-api:latest`, `rachao-migrate:latest`.
 # Rede interna
 docker network create -d overlay --attachable rachao-backend
 
+# Carregar .env no shell (ou use ./deploy.sh)
+source ./lib/env.sh
+env_load_all .env
+
 # Supabase
-docker stack deploy -c docker-compose-swarm-supabase.yml rachao-supabase --env-file .env
+docker stack deploy -c docker-compose-swarm-supabase.yml rachao-supabase
 
 # Aguardar Postgres (~30–60s)
 docker stack services rachao-supabase
@@ -78,7 +82,7 @@ docker stack services rachao-supabase
 ./run-migrate.sh
 
 # App
-docker stack deploy -c docker-compose-swarm-app.yml rachao-app --env-file .env
+docker stack deploy -c docker-compose-swarm-app.yml rachao-app
 ```
 
 ## 4. Verificacao
@@ -155,6 +159,8 @@ Configure no painel do provedor apontando para a **API**:
 |----------|------|
 | API `health/db` falha | Postgres ainda subindo; conferir `docker service logs rachao-supabase_db` |
 | Login "Failed to fetch" | `NEXT_PUBLIC_SUPABASE_URL` no build da imagem web; refazer `build-images.sh` |
+| Prisma P1013 invalid port | Senha com `$` ou `#` na URL; rode `env_ensure_database_url` (incluso no `deploy.sh` / `run-migrate.sh`) |
+| Servico 0/1 replicas | `docker service ps NOME_DO_SERVICO --no-trunc` e `docker service logs NOME --tail 50` |
 | CORS na API | `CORS_ORIGIN` usa `WEB_DOMAIN`; redeploy app stack |
 | Certificado SSL | Traefik + DNS corretos; labels `letsencryptresolver` |
 | Kong 502 | `docker service logs rachao-supabase_kong`; volumes `infra/supabase/volumes/api/*` no manager |
