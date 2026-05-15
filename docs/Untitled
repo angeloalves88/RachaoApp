@@ -1,0 +1,18 @@
+
+Build Error
+Next.js (15.1.4) is outdated (learn more)
+Failed to compile
+
+../../packages/shared/src/index.ts:1:1
+Module not found: Can't resolve './enums.js'
+> 1 | export * from './enums.js';
+    | ^
+  2 | export * from './zod.js';
+  3 |
+
+https://nextjs.org/docs/messages/module-not-found
+
+Import trace for requested module:
+./components/boleiros/boleiro-form-dialog.tsx
+./app/(presidente)/grupos/[id]/grupo-tabs.tsx
+This error occurred during the build process and can only be dismissed by fixing the error.

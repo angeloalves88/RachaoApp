@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================================
+   RachaoApp - Design Tokens (do rachaoapp-identidade-visual.md)
+   ============================================================================= */
+
+@layer base {
+  :root {
+    /* Surfaces */
+    --color-bg: #0f1b2d;
+    --color-surface: #162236;
+    --color-surface-2: #1c2d45;
+    --color-surface-offset: #243450;
+    --color-surface-dynamic: #2a3c5c;
+    --color-divider: #1e2f44;
+    --color-border: #243450;
+
+    /* Texto */
+    --color-text: #e8edf3;
+    --color-text-muted: #7a8fa6;
+    --color-text-faint: #3d5068;
+    --color-text-inverse: #0f1b2d;
+
+    /* Acento primário — Laranja Fogo */
+    --color-primary: #e8530a;
+    --color-primary-hover: #c94208;
+    --color-primary-active: #a83506;
+    --color-primary-highlight: #2d1a0f;
+
+    /* Status */
+    --color-success: #22c55e;
+    --color-success-highlight: #0d2b1a;
+    --color-warning: #eab308;
+    --color-warning-highlight: #2b2200;
+    --color-error: #ef4444;
+    --color-error-highlight: #2b0f0f;
+    --color-info: #38bdf8;
+    --color-info-highlight: #0a1f2b;
+
+    /* Tipografia (next/font preenche essas vars) */
+    --font-display: 'Barlow Condensed', Impact, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+
+    /* Escala fluida */
+    --text-xs: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+    --text-sm: clamp(0.875rem, 0.8rem + 0.35vw, 1rem);
+    --text-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+    --text-lg: clamp(1.125rem, 1rem + 0.75vw, 1.5rem);
+    --text-xl: clamp(1.5rem, 1.2rem + 1.25vw, 2.25rem);
+
+    /* Bordas */
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    --radius-xl: 1rem;
+    --radius-full: 9999px;
+
+    /* Sombras */
+    --shadow-sm: 0 1px 3px oklch(0.05 0.02 240 / 0.4);
+    --shadow-md: 0 4px 16px oklch(0.05 0.02 240 / 0.5);
+    --shadow-lg: 0 12px 40px oklch(0.05 0.02 240 / 0.6);
+
+    /* Larguras de conteúdo */
+    --content-narrow: 640px;
+    --content-default: 960px;
+    --content-wide: 1200px;
+  }
+
+  /*
+   * Tema Dono do Estádio: accent teal em superfícies levemente esverdeadas.
+   * Presidente usa :root acima; o layout (presidente) define data-theme="presidente"
+   * para consistência DOM, sem redeclarar tokens (herda :root).
+   */
+  [data-theme='estadio'] {
+    --color-bg: #0b1618;
+    --color-surface: #0f2224;
+    --color-surface-2: #142d2f;
+    --color-surface-offset: #1a3a3c;
+    --color-surface-dynamic: #22494b;
+    --color-divider: #132a2c;
+    --color-border: #1a383a;
+
+    --color-text: #e8f3f1;
+    --color-text-muted: #6d9d98;
+    --color-text-faint: #3a5c58;
+    --color-text-inverse: #071212;
+
+    --color-primary: #2dd4bf;
+    --color-primary-hover: #22c9b3;
+    --color-primary-active: #159688;
+    --color-primary-highlight: #0a2826;
+
+    --color-success: #34d399;
+    --color-success-highlight: #0d241c;
+    --color-warning: #fbbf24;
+    --color-warning-highlight: #2b2200;
+    --color-error: #f87171;
+    --color-error-highlight: #2b1212;
+    --color-info: #38bdf8;
+    --color-info-highlight: #0a1f2b;
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-feature-settings: 'cv11', 'ss01';
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Tipografia base */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* Números do placar */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Mobile-first: respeitar safe area no iOS */
+  @supports (padding: max(0px)) {
+    .safe-bottom {
+      padding-bottom: max(env(safe-area-inset-bottom), 0px);
+    }
+    .safe-top {
+      padding-top: max(env(safe-area-inset-top), 0px);
+    }
+  }
+
+  /* Touch targets - garantir 44px min */
+  button,
+  a[role='button'],
+  [role='tab'],
+  input[type='checkbox'],
+  input[type='radio'] {
+    min-height: 0;
+  }
+}
+
+@layer components {
+  /* Botão primário - referência da identidade visual */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-5 py-2.5 text-sm font-medium transition-colors;
+    background: var(--color-primary);
+    color: var(--color-text-inverse);
+    min-height: 44px;
+  }
+  .btn-primary:hover {
+    background: var(--color-primary-hover);
+  }
+  .btn-primary:active {
+    background: var(--color-primary-active);
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}

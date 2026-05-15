@@ -1,0 +1,2 @@
+# Scripts montados em containers Linux precisam de LF (CRLF quebra bash no Kong).
+infra/supabase/volumes/**/*.sh text eol=lf

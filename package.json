@@ -1,0 +1,33 @@
+{
+  "name": "rachaoapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RachaoApp - Plataforma SaaS para gestao de peladas de futebol amador",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @rachao/web --filter @rachao/api dev",
+    "dev:web": "pnpm --filter @rachao/web dev",
+    "dev:api": "pnpm --filter @rachao/api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @rachao/db db:generate",
+    "db:migrate": "pnpm --filter @rachao/db db:migrate",
+    "db:push": "pnpm --filter @rachao/db db:push",
+    "db:studio": "pnpm --filter @rachao/db db:studio",
+    "supabase:up": "docker compose --env-file infra/supabase/.env -f infra/supabase/docker-compose.yml up -d",
+    "supabase:down": "docker compose --env-file infra/supabase/.env -f infra/supabase/docker-compose.yml down",
+    "supabase:logs": "docker compose --env-file infra/supabase/.env -f infra/supabase/docker-compose.yml logs -f",
+    "supabase:reset": "docker compose --env-file infra/supabase/.env -f infra/supabase/docker-compose.yml down -v",
+    "seed:boleiros": "pnpm --filter @rachao/web seed:boleiros"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  }
+}

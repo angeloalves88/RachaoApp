@@ -1,0 +1,596 @@
+// =============================================================================
+// RachaoApp - Schema Prisma
+// =============================================================================
+// Enums sao representados como String para flexibilidade (perfis, posicoes,
+// status). Valores validos sao validados via Zod no @rachao/shared.
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgcrypto, uuid_ossp(map: "uuid-ossp"), citext]
+}
+
+// -----------------------------------------------------------------------------
+// USUARIO (Presidente e/ou Dono do Estadio)
+// -----------------------------------------------------------------------------
+model Usuario {
+  id        String   @id @default(cuid())
+  nome      String
+  apelido   String?
+  email     String   @unique
+  celular   String?
+  cidade    String?
+  avatarUrl String?
+  /// Array de perfis ativos: "presidente" | "dono_estadio"
+  perfis    String[] @default([])
+  plano     String   @default("trial") // trial, presidente_mensal, estadio_mensal
+  /// Quando o plano vence (renovacao ou fim do trial)
+  planoExpiraEm DateTime?
+  /// Customer ID no gateway Asaas (cobranca recorrente)
+  asaasCustomerId String? @unique
+
+  // Preferencias padrao de partida (T34)
+  prefNumTimes        Int?
+  prefBoleirosPorTime Int?
+  prefTempoPartida    Int?
+  prefTempoTotal      Int?
+  prefRegrasPadrao    Json?
+  /// Formato de hora: "24h" | "12h"
+  prefFormatoHora     String   @default("24h")
+
+  // Notificacoes (toggles globais por canal — T33)
+  notifEmail    Boolean @default(true)
+  notifWhatsapp Boolean @default(true)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // Relacionamentos
+  grupos              GrupoPresidente[]
+  partidasComoPres    PartidaPresidente[]
+  estadio             Estadio?
+  notificacoes        Notificacao[]
+  prefsNotificacao    PreferenciaNotificacao[]
+  assinaturas         Assinatura[]
+
+  @@index([email])
+}
+
+/// Assinatura no gateway de pagamento (Asaas na V1). Espelha o estado do
+/// recurso remoto e permite consultas/listagens sem chamar o gateway.
+model Assinatura {
+  id                  String   @id @default(cuid())
+  usuarioId           String
+  /// "asaas" (unico hoje)
+  gateway             String
+  /// ID da assinatura no gateway (subscription_id)
+  externalId          String   @unique
+  /// presidente_mensal | estadio_mensal | combo_mensal
+  plano               String
+  /// ativa | pendente | cancelada | inadimplente
+  status              String
+  valor               Decimal  @db.Decimal(10, 2)
+  /// monthly | yearly
+  ciclo               String
+  /// Forma de pagamento: PIX | CREDIT_CARD | BOLETO
+  billingType         String?
+  proximoVencimento   DateTime?
+  ultimoPagamentoEm   DateTime?
+  cancelaEmFimCiclo   Boolean  @default(false)
+  /// Link do checkout/portal do gateway para o usuario completar pagamento.
+  linkPagamento       String?
+  metadata            Json?
+  criadoEm            DateTime @default(now())
+  atualizadoEm        DateTime @updatedAt
+
+  usuario             Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+  @@index([status])
+}
+
+/// Trilha de eventos recebidos via webhook (idempotencia). Cada webhook deve
+/// inserir aqui com `@@unique([gateway, externalId])`; em caso de violacao
+/// (P2002) a requisicao retorna 200 sem reprocessar.
+model EventoBilling {
+  id           String   @id @default(cuid())
+  gateway      String
+  externalId   String
+  tipo         String
+  recebidoEm   DateTime @default(now())
+  processadoEm DateTime?
+  payload      Json
+
+  @@unique([gateway, externalId])
+  @@index([tipo])
+}
+
+/// T33 - Preferencias granulares de notificacao por evento e canal.
+/// Cada linha representa uma combinacao (usuario, evento). canalEmail e
+/// canalWhatsapp sao toggles individuais. Quando uma linha NAO existe para
+/// um evento, o sistema assume "true" para ambos os canais (default-on).
+model PreferenciaNotificacao {
+  id            String  @id @default(cuid())
+  usuarioId     String
+  /// Codigo do evento (espelha os tipos de Notificacao): presenca_confirmada,
+  /// presenca_recusada, lista_espera_promovido, partida_24h, vaquinha_pendente,
+  /// estadio_aprovado, estadio_recusado, partida_cancelada, nova_solicitacao,
+  /// presidente_cancelou_partida
+  evento        String
+  canalEmail    Boolean @default(true)
+  canalWhatsapp Boolean @default(true)
+  atualizadoEm  DateTime @updatedAt
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([usuarioId, evento])
+  @@index([usuarioId])
+}
+
+// -----------------------------------------------------------------------------
+// GRUPO (pelada / nucleo de boleiros)
+// -----------------------------------------------------------------------------
+model Grupo {
+  id          String   @id @default(cuid())
+  nome        String
+  esporte     String   @default("futebol")
+  /// casual | intermediario | competitivo
+  nivel       String   @default("casual")
+  fotoUrl     String?
+  descricao   String?
+  /// ativo | arquivado
+  status      String   @default("ativo")
+
+  // Tipo de cobranca padrao (pode ser sobrescrito por partida)
+  tipoCobrancaPadrao String? // por_partida | mensalidade
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // Relacionamentos
+  presidentes GrupoPresidente[]
+  boleiros    BoleiroGrupo[]
+  partidas    Partida[]
+
+  @@index([nome])
+  @@index([status])
+}
+
+// Tabela de juncao Grupo <-> Usuario (multi-presidente)
+model GrupoPresidente {
+  id        String   @id @default(cuid())
+  grupoId   String
+  usuarioId String
+  /// criador | copresidente
+  papel     String   @default("copresidente")
+  criadoEm  DateTime @default(now())
+
+  grupo   Grupo   @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([grupoId, usuarioId])
+  @@index([usuarioId])
+}
+
+// -----------------------------------------------------------------------------
+// CONVIDADO AVULSO (cadastro global por celular)
+// -----------------------------------------------------------------------------
+model ConvidadoAvulso {
+  id       String  @id @default(cuid())
+  nome     String
+  celular  String  @unique
+  apelido  String?
+  /// GOL | ZAG | MEI | ATA
+  posicao  String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // Relacionamentos
+  boleirosGrupo BoleiroGrupo[]
+  convites      ConvitePartida[]
+  pagamentos    Pagamento[]
+  timeBoleiros  TimeBoleiro[]
+
+  @@index([celular])
+}
+
+// -----------------------------------------------------------------------------
+// BOLEIRO DENTRO DE UM GRUPO (registro especifico por grupo)
+// -----------------------------------------------------------------------------
+model BoleiroGrupo {
+  id             String  @id @default(cuid())
+  grupoId        String
+  /// Se veio de um ConvidadoAvulso promovido a fixo
+  convidadoRefId String?
+
+  nome    String
+  apelido String?
+  /// GOL | ZAG | MEI | ATA
+  posicao String?
+  celular String
+  email   String?
+
+  /// ativo | arquivado
+  status   String   @default("ativo")
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // Relacionamentos
+  grupo      Grupo            @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  convidado  ConvidadoAvulso? @relation(fields: [convidadoRefId], references: [id])
+  convites   ConvitePartida[]
+  timesBoleiro TimeBoleiro[]
+  pagamentos Pagamento[]
+
+  @@unique([grupoId, celular])
+  @@index([grupoId])
+  @@index([celular])
+}
+
+// -----------------------------------------------------------------------------
+// ESTADIO (Dono do Estadio)
+// -----------------------------------------------------------------------------
+model Estadio {
+  id          String   @id @default(cuid())
+  donoId      String   @unique
+  nome        String
+  slug        String   @unique
+  endereco    String
+  cidade      String
+  estado      String
+  /// campo | quadra | arena | salao
+  tipoEspaco  String   @default("campo")
+  /// grama_natural | sintetico | salao | areia | cimento | parquet | saibro
+  tipoPiso    String[]
+  capacidade  Int
+  comodidades String[]
+  descricao   String?
+  fotoCapaUrl String?
+  fotos       String[]
+  ativo       Boolean  @default(true)
+  publico     Boolean  @default(true)
+  /// Aparece em buscas de Presidentes (T27 toggle).
+  publicoBuscas Boolean @default(true)
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // Relacionamentos
+  dono          Usuario              @relation(fields: [donoId], references: [id], onDelete: Cascade)
+  horarios      HorarioDisponivel[]
+  bloqueios     DataBloqueada[]
+  partidas      Partida[]
+  solicitacoes  SolicitacaoVinculo[]
+
+  @@index([cidade, estado])
+  @@index([slug])
+}
+
+// Historico das solicitacoes de vinculo Presidente -> Estadio (T29).
+// Cada partida que escolhe um estadio cria 1 SolicitacaoVinculo. Status reflete
+// a decisao do dono e fica gravado mesmo apos resposta — permite mostrar abas
+// "Aprovadas / Recusadas / Todas" e auditar motivos.
+model SolicitacaoVinculo {
+  id              String    @id @default(cuid())
+  partidaId       String    @unique
+  estadioId       String
+
+  /// pendente | aprovada | recusada | cancelada
+  status          String    @default("pendente")
+  motivoResposta  String?
+  respondidaEm    DateTime?
+  observacoesPres String?
+
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  partida Partida @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+  estadio Estadio @relation(fields: [estadioId], references: [id], onDelete: Cascade)
+
+  @@index([estadioId, status])
+  @@index([partidaId])
+}
+
+model HorarioDisponivel {
+  id               String  @id @default(cuid())
+  estadioId        String
+  /// 0=Dom, 1=Seg ... 6=Sab
+  diaSemana        Int
+  /// Formato "HH:mm"
+  horaInicio       String
+  horaFim          String
+  intervaloMinutos Int     @default(60)
+  ativo            Boolean @default(true)
+
+  estadio Estadio @relation(fields: [estadioId], references: [id], onDelete: Cascade)
+
+  @@index([estadioId, diaSemana])
+}
+
+model DataBloqueada {
+  id        String   @id @default(cuid())
+  estadioId String
+  data      DateTime
+  motivo    String?
+
+  estadio Estadio @relation(fields: [estadioId], references: [id], onDelete: Cascade)
+
+  @@index([estadioId, data])
+}
+
+// -----------------------------------------------------------------------------
+// PARTIDA (rachao individual)
+// -----------------------------------------------------------------------------
+model Partida {
+  id              String   @id @default(cuid())
+  grupoId         String
+  estadioId       String?
+
+  dataHora        DateTime
+  /// Texto livre quando nao ha estadio cadastrado
+  localLivre      String?
+
+  numTimes        Int      @default(2)
+  boleirosPorTime Int      @default(5)
+  /// Reservas extras por time (alem dos titulares). Default 0.
+  reservasPorTime Int      @default(0)
+  /// Tempo de cada confronto (minutos)
+  tempoPartida    Int      @default(15)
+  /// Tempo total do evento (minutos)
+  tempoTotal      Int      @default(90)
+
+  /// por_partida | mensalidade
+  tipoCobranca    String   @default("por_partida")
+
+  /// agendada | em_andamento | encerrada | cancelada
+  status          String   @default("agendada")
+
+  /// Regras ativas: { cartao_azul, bloqueio_vermelho, ... }
+  regras          Json     @default("{}")
+
+  /// Status de aprovacao do estadio quando vinculado
+  /// pendente | aprovado | recusado | sem_estadio
+  statusEstadio   String   @default("sem_estadio")
+
+  observacoes     String?
+
+  /// Identificador compartilhado entre partidas geradas pela mesma serie semanal
+  /// (recorrente). Null para partidas avulsas. Usado para "cancelar a serie".
+  serieId         String?
+
+  /// Estado server-side do cronometro do ao-vivo. Formato:
+  /// { status: 'parado'|'rodando'|'pausado', iniciadoEm?: ISO, segundosAcumulados: number, ultimaAcaoClientId?: string }
+  cronometroEstado Json?
+
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  // Relacionamentos
+  grupo               Grupo               @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  estadio             Estadio?            @relation(fields: [estadioId], references: [id])
+  presidentes         PartidaPresidente[]
+  convites            ConvitePartida[]
+  times               Time[]
+  eventos             Evento[]
+  vaquinha            Vaquinha?
+  solicitacaoVinculo  SolicitacaoVinculo?
+
+  @@index([grupoId, dataHora])
+  @@index([estadioId, dataHora])
+  @@index([status])
+  @@index([serieId])
+}
+
+// Tabela de juncao Partida <-> Usuario (multi-presidente da partida)
+model PartidaPresidente {
+  id        String   @id @default(cuid())
+  partidaId String
+  usuarioId String
+  criadoEm  DateTime @default(now())
+
+  partida Partida @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([partidaId, usuarioId])
+}
+
+// -----------------------------------------------------------------------------
+// CONVITE / PRESENCA (link unico por boleiro/convite)
+// -----------------------------------------------------------------------------
+model ConvitePartida {
+  id                String   @id @default(cuid())
+  partidaId         String
+  boleiroGrupoId    String?
+  convidadoAvulsoId String?
+
+  /// fixo | convidado_avulso
+  tipo              String
+
+  /// Token publico para a tela /confirmar/[token]
+  token             String   @unique @default(cuid())
+  tokenExpiresAt    DateTime
+
+  /// pendente | confirmado | recusado | lista_espera
+  status            String   @default("pendente")
+  recado            String?
+  /// Posicao na lista de espera quando aplicavel
+  posicaoEspera     Int?
+  confirmadoEm      DateTime?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  // Relacionamentos
+  partida         Partida          @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+  boleiroGrupo    BoleiroGrupo?    @relation(fields: [boleiroGrupoId], references: [id])
+  convidadoAvulso ConvidadoAvulso? @relation(fields: [convidadoAvulsoId], references: [id])
+
+  @@index([partidaId, status])
+  @@index([token])
+}
+
+// -----------------------------------------------------------------------------
+// TIME / ESCALACAO
+// -----------------------------------------------------------------------------
+model Time {
+  id        String @id @default(cuid())
+  partidaId String
+  nome      String
+  cor       String
+
+  // Resultado final (preenchido ao encerrar)
+  golsFinal Int? @default(0)
+
+  partida   Partida       @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+  boleiros  TimeBoleiro[]
+  eventos   Evento[]
+
+  @@index([partidaId])
+}
+
+// Juncao Time <-> BoleiroGrupo (escalacao)
+model TimeBoleiro {
+  id             String   @id @default(cuid())
+  timeId         String
+  boleiroGrupoId String?
+  /// Convidado avulso pode ser escalado tambem
+  convidadoAvulsoId String?
+  /// Posicao na ordem da escalacao (dentro de titulares ou reservas)
+  ordem          Int      @default(0)
+  capitao        Boolean  @default(false)
+  /// True quando este boleiro esta na sublista de reservas do time
+  reserva        Boolean  @default(false)
+
+  criadoEm       DateTime @default(now())
+
+  time         Time          @relation(fields: [timeId], references: [id], onDelete: Cascade)
+  boleiroGrupo BoleiroGrupo? @relation(fields: [boleiroGrupoId], references: [id])
+  convidadoAvulso ConvidadoAvulso? @relation(fields: [convidadoAvulsoId], references: [id])
+
+  @@unique([timeId, boleiroGrupoId])
+  @@unique([timeId, convidadoAvulsoId])
+  @@index([timeId])
+}
+
+// -----------------------------------------------------------------------------
+// EVENTO (gol, cartao, substituicao)
+// -----------------------------------------------------------------------------
+model Evento {
+  id        String  @id @default(cuid())
+  partidaId String
+  timeId    String?
+  boleiroId String?
+
+  /// gol | amarelo | vermelho | azul | substituicao
+  tipo      String
+  minuto    Int?
+  /// { boleiroSubstitutoId, duracaoAzul, golOlimpico }
+  dadosExtras Json?
+  /// Idempotencia: id gerado no cliente (PWA / fila offline). Garante que um
+  /// mesmo evento nao seja registrado duas vezes mesmo com retries.
+  clientId  String?
+
+  criadoEm DateTime @default(now())
+
+  partida Partida @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+  time    Time?   @relation(fields: [timeId], references: [id])
+
+  @@unique([partidaId, clientId], name: "uniq_partida_clientid")
+  @@index([partidaId])
+}
+
+// -----------------------------------------------------------------------------
+// VAQUINHA (financeiro da partida ou mensalidade)
+// -----------------------------------------------------------------------------
+model Vaquinha {
+  id                   String    @id @default(cuid())
+  partidaId            String    @unique
+
+  /// por_partida | mensalidade
+  tipo                 String
+  /// "2026-05" - apenas se mensalidade
+  mesReferencia        String?
+  chavePix             String
+  /// cpf | cnpj | telefone | email | aleatoria
+  tipoChavePix         String?
+  valorBoleiroFixo     Decimal   @db.Decimal(10, 2)
+  valorConvidadoAvulso Decimal   @db.Decimal(10, 2)
+  dataLimitePagamento  DateTime?
+  /// Mensalidade: limite especifico para convidados (por partida). Se null, usa dataHora da partida.
+  dataLimitePagamentoConvidados DateTime?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  partida    Partida     @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+  pagamentos Pagamento[]
+
+  @@index([partidaId])
+}
+
+model Pagamento {
+  id                String   @id @default(cuid())
+  vaquinhaId        String
+  boleiroGrupoId    String?
+  convidadoAvulsoId String?
+
+  /// fixo | convidado_avulso
+  tipoPagador       String
+  valorCobrado      Decimal  @db.Decimal(10, 2)
+  /// pago | pendente | inadimplente
+  status            String   @default("pendente")
+  dataPagamento     DateTime?
+  observacao        String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  vaquinha        Vaquinha         @relation(fields: [vaquinhaId], references: [id], onDelete: Cascade)
+  boleiroGrupo    BoleiroGrupo?    @relation(fields: [boleiroGrupoId], references: [id])
+  convidadoAvulso ConvidadoAvulso? @relation(fields: [convidadoAvulsoId], references: [id])
+
+  @@index([vaquinhaId, status])
+}
+
+// -----------------------------------------------------------------------------
+// NOTIFICACAO (T17 - central de notificacoes do Presidente / Dono)
+// -----------------------------------------------------------------------------
+model Notificacao {
+  id        String  @id @default(cuid())
+  usuarioId String
+
+  /// Tipos: presenca_confirmada | presenca_recusada | lista_espera_promovido |
+  /// partida_24h | vaquinha_pendente | estadio_aprovado | estadio_recusado |
+  /// copresidente_adicionado | partida_cancelada
+  tipo      String
+  /// Categoria para filtros em tabs: partidas | financeiro | estadio | grupo
+  categoria String  @default("partidas")
+
+  titulo    String
+  corpo     String
+  /// URL relativa para deep-link (ex: /partidas/abc/presencas)
+  link      String?
+
+  /// Referencias opcionais para deduplicacao e contexto
+  partidaId String?
+  grupoId   String?
+
+  lida   Boolean   @default(false)
+  lidaEm DateTime?
+
+  criadoEm DateTime @default(now())
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, lida, criadoEm(sort: Desc)])
+  @@index([usuarioId, categoria, criadoEm(sort: Desc)])
+  @@index([partidaId, tipo])
+}

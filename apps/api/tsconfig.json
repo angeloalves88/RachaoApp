@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@rachao/db": ["../../packages/db/src/index.ts"],
+      "@rachao/shared": ["../../packages/shared/src/index.ts"],
+      "@rachao/shared/zod": ["../../packages/shared/src/zod.ts"],
+      "@rachao/shared/enums": ["../../packages/shared/src/enums.ts"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
