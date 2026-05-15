@@ -42,7 +42,7 @@ services:
 
     networks:
       - rachao-backend
-      - traefik-public
+      - __TRAEFIK_NETWORK__
 
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://127.0.0.1:3333/health']
@@ -60,7 +60,7 @@ services:
         window: 120s
       labels:
         - traefik.enable=true
-        - traefik.docker.network=${TRAEFIK_NETWORK:-PDRCOREBOT}
+        - traefik.docker.network=__TRAEFIK_NETWORK__
 
         - traefik.http.routers.rachao-api.rule=Host(`${API_DOMAIN}`)
         - traefik.http.routers.rachao-api.priority=1
@@ -116,7 +116,7 @@ services:
       HOSTNAME: 0.0.0.0
       TZ: America/Sao_Paulo
     networks:
-      - traefik-public
+      - __TRAEFIK_NETWORK__
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://127.0.0.1:3000/']
       interval: 30s
@@ -132,7 +132,7 @@ services:
         window: 120s
       labels:
         - traefik.enable=true
-        - traefik.docker.network=${TRAEFIK_NETWORK:-PDRCOREBOT}
+        - traefik.docker.network=__TRAEFIK_NETWORK__
 
         - traefik.http.routers.rachao-web.rule=Host(`${WEB_DOMAIN}`)
         - traefik.http.routers.rachao-web.priority=1
@@ -165,7 +165,5 @@ services:
 networks:
   rachao-backend:
     external: true
-    name: rachao-backend
-  traefik-public:
+  __TRAEFIK_NETWORK__:
     external: true
-    name: ${TRAEFIK_NETWORK:-PDRCOREBOT}

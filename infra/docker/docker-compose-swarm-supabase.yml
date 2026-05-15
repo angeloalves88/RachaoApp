@@ -228,7 +228,7 @@ services:
     image: kong:2.8.1
     networks:
       - rachao-backend
-      - traefik-public
+      - __TRAEFIK_NETWORK__
     entrypoint: ['bash', '/home/kong/entrypoint.sh']
     environment:
       KONG_DATABASE: 'off'
@@ -250,7 +250,7 @@ services:
         condition: on-failure
       labels:
         - traefik.enable=true
-        - traefik.docker.network=${TRAEFIK_NETWORK:-PDRCOREBOT}
+        - traefik.docker.network=__TRAEFIK_NETWORK__
         - traefik.http.routers.rachao-supabase.rule=Host(`${SUPABASE_DOMAIN}`)
         - traefik.http.routers.rachao-supabase.priority=1
         - traefik.http.routers.rachao-supabase.entrypoints=websecure
@@ -276,10 +276,8 @@ services:
 networks:
   rachao-backend:
     external: true
-    name: rachao-backend
-  traefik-public:
+  __TRAEFIK_NETWORK__:
     external: true
-    name: ${TRAEFIK_NETWORK:-PDRCOREBOT}
 
 volumes:
   rachao_postgres_data:
