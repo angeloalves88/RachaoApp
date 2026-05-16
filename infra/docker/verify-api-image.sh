@@ -20,7 +20,7 @@ echo "--- Teste: server.mjs existe? ---"
 docker run --rm --entrypoint sh "$IMAGE" -c 'ls -la /app/server.mjs && head -c 80 /app/server.mjs | wc -c'
 
 echo "--- Teste: @prisma/client existe? ---"
-docker run --rm --entrypoint sh "$IMAGE" -c 'ls /app/node_modules/@prisma/client/package.json'
+docker run --rm --entrypoint sh "$IMAGE" -c 'test -f /app/node_modules/@prisma/client/package.json && test -d /app/node_modules/.prisma/client'
 
 echo "--- Teste: node carrega server (5s, pode falhar sem env) ---"
 docker run --rm --entrypoint sh "$IMAGE" -c 'timeout 3 node /app/server.mjs 2>&1 | head -5 || true'
