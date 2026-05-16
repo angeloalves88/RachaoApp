@@ -16,16 +16,17 @@ COPY packages/shared ./packages/shared
 RUN pnpm install --frozen-lockfile
 RUN pnpm db:generate
 
+# format=cjs evita "Dynamic require of node:events is not supported" (Fastify + ESM bundle)
 RUN cd apps/api && pnpm dlx esbuild@0.25.0 src/server.ts \
   --bundle \
   --platform=node \
   --target=node22 \
-  --format=esm \
+  --format=cjs \
   --tsconfig=tsconfig.json \
-  --outfile=dist/server.mjs \
+  --outfile=dist/server.cjs \
   --external:@prisma/client \
   --external:prisma \
-  && test -s dist/server.mjs
+  && test -s dist/server.cjs
 
 # pnpm nao cria node_modules/@prisma no root — copiar client + engines para path fixo
 RUN set -eux; \
@@ -50,8 +51,7 @@ RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 --ingroup nodejs rachao
 
 COPY --from=builder --chown=rachao:nodejs /runtime/node_modules ./node_modules
-COPY --from=builder --chown=rachao:nodejs /app/apps/api/dist/server.mjs ./server.mjs
-RUN echo '{"type":"module"}' > package.json
+COPY --from=builder --chown=rachao:nodejs /app/apps/api/dist/server.cjs ./server.cjs
 
 USER rachao
 EXPOSE 3333
@@ -59,4 +59,4 @@ EXPOSE 3333
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
   CMD curl -f http://127.0.0.1:3333/health || exit 1
 
-CMD ["node", "server.mjs"]
+CMD ["node", "server.cjs"]

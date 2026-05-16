@@ -16,13 +16,13 @@ docker image inspect "$IMAGE" --format '{{.Created}}'
 echo "--- CMD / Entrypoint ---"
 docker image inspect "$IMAGE" --format 'CMD: {{json .Config.Cmd}}'
 
-echo "--- Teste: server.mjs existe? ---"
-docker run --rm --entrypoint sh "$IMAGE" -c 'ls -la /app/server.mjs && head -c 80 /app/server.mjs | wc -c'
+echo "--- Teste: server.cjs existe? ---"
+docker run --rm --entrypoint sh "$IMAGE" -c 'ls -la /app/server.cjs && head -c 80 /app/server.cjs | wc -c'
 
 echo "--- Teste: @prisma/client existe? ---"
 docker run --rm --entrypoint sh "$IMAGE" -c 'test -f /app/node_modules/@prisma/client/package.json && test -d /app/node_modules/.prisma/client'
 
 echo "--- Teste: node carrega server (5s, pode falhar sem env) ---"
-docker run --rm --entrypoint sh "$IMAGE" -c 'timeout 3 node /app/server.mjs 2>&1 | head -5 || true'
+docker run --rm --entrypoint sh "$IMAGE" -c 'timeout 3 node /app/server.cjs 2>&1 | head -8 || true'
 
 echo "=== OK: imagem parece valida. Proximo: ./stack-deploy-app.sh ==="
