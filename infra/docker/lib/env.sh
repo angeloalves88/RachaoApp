@@ -2,6 +2,18 @@
 # Le variaveis do .env sem `source` (evita quebra com espacos, $, <, etc.)
 # Uso: env_load_file "/path/to/.env" VAR1 VAR2 ...
 
+# Remove comentario inline (ex.: true # false) — fora de aspas.
+env_strip_inline_comment() {
+  local v="$1"
+  if [[ "$v" =~ ^\".*\"$ || "$v" =~ ^\'.*\'$ ]]; then
+    printf '%s' "$v"
+    return
+  fi
+  v="${v%%[[:space:]]#*}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s' "$v"
+}
+
 env_load_file() {
   local file="$1"
   shift
@@ -18,6 +30,7 @@ env_load_file() {
     elif [[ "$value" =~ ^\'.*\'$ ]]; then
       value="${value:1:${#value}-2}"
     fi
+    value=$(env_strip_inline_comment "$value")
     printf -v "$key" '%s' "$value"
     export "$key"
   done
@@ -45,6 +58,7 @@ env_load_all() {
     elif [[ "$value" =~ ^\'.*\'$ ]]; then
       value="${value:1:${#value}-2}"
     fi
+    value=$(env_strip_inline_comment "$value")
 
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
     export "$key=$value"
@@ -83,6 +97,19 @@ env_ensure_database_url() {
   local enc_pass
   enc_pass=$(env_urlencode "$POSTGRES_PASSWORD")
   export DATABASE_URL="postgresql://${user}:${enc_pass}@${host}:${port}/${db}?schema=public"
+}
+
+# URLs Postgres dos servicos Supabase (auth/rest/storage) com senha URL-encoded.
+# Evita GoTrue crash quando POSTGRES_PASSWORD contem @ # $ etc.
+env_ensure_supabase_service_db_urls() {
+  : "${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD em infra/docker/.env}"
+  local enc_pass db host
+  enc_pass=$(env_urlencode "$POSTGRES_PASSWORD")
+  db="${POSTGRES_DB:-postgres}"
+  host="${SUPABASE_DB_HOST:-db}"
+  export GOTRUE_DB_DATABASE_URL="postgres://supabase_auth_admin:${enc_pass}@${host}:5432/${db}"
+  export PGRST_DB_URI="postgres://authenticator:${enc_pass}@${host}:5432/${db}"
+  export SUPABASE_STORAGE_DATABASE_URL="postgres://supabase_storage_admin:${enc_pass}@${host}:5432/${db}"
 }
 
 # Aguarda Postgres na rede overlay (migrate / troubleshooting)

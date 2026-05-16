@@ -195,7 +195,9 @@ Ou: `./redeploy-app.sh` (faz os tres passos).
 | CORS na API | `CORS_ORIGIN` usa `WEB_DOMAIN`; redeploy app stack |
 | Certificado SSL | Traefik + DNS corretos; labels `letsencryptresolver` |
 | Kong 502 | `docker service logs rachao-supabase_kong`; volumes `infra/supabase/volumes/api/*` no manager |
-| Kong 503 `name resolution failed` em `/auth/v1/*` | Kong nao resolve `auth` no Swarm; redeploy supabase com aliases de rede no compose (servico `auth` etc.) |
+| Kong 503 `name resolution failed` em `/auth/v1/*` | Servico `auth` (GoTrue) **0/1** — veja `docker service logs rachao-supabase_auth`; aliases de rede + senha Postgres URL-encoded (`env_ensure_supabase_service_db_urls`) |
+| GoTrue `task: non-zero exit (1)` | Logs do `_auth`: senha DB errada (`./fix-supabase-role-passwords.sh`), URL com `@` na senha (redeploy com `./stack-deploy-supabase.sh`), SMTP invalido com e-mail ligado |
+| GoTrue `parsing "true #false"` | Comentario inline no `.env` (ex. `ENABLE_EMAIL_AUTOCONFIRM=true #false`); use linha so com `true` ou `false` |
 
 ## Dev local (inalterado)
 
