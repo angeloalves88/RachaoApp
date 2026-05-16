@@ -60,7 +60,9 @@ services:
   auth:
     image: supabase/gotrue:v2.167.0
     networks:
-      - rachao-backend
+      rachao-backend:
+        aliases:
+          - auth
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
@@ -102,7 +104,9 @@ services:
   rest:
     image: postgrest/postgrest:v12.2.3
     networks:
-      - rachao-backend
+      rachao-backend:
+        aliases:
+          - rest
     environment:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-postgres}
       PGRST_DB_SCHEMAS: public,storage,graphql_public
@@ -120,7 +124,9 @@ services:
   realtime:
     image: supabase/realtime:v2.34.7
     networks:
-      - rachao-backend
+      rachao-backend:
+        aliases:
+          - realtime
     environment:
       PORT: 4000
       DB_HOST: db
@@ -146,7 +152,9 @@ services:
   imgproxy:
     image: darthsim/imgproxy:v3.8.0
     networks:
-      - rachao-backend
+      rachao-backend:
+        aliases:
+          - imgproxy
     environment:
       IMGPROXY_BIND: ':5001'
       IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
@@ -162,7 +170,9 @@ services:
   storage:
     image: supabase/storage-api:v1.14.5
     networks:
-      - rachao-backend
+      rachao-backend:
+        aliases:
+          - storage
     environment:
       ANON_KEY: ${ANON_KEY}
       SERVICE_KEY: ${SERVICE_ROLE_KEY}
@@ -187,7 +197,9 @@ services:
   meta:
     image: supabase/postgres-meta:v0.84.2
     networks:
-      - rachao-backend
+      rachao-backend:
+        aliases:
+          - meta
     environment:
       PG_META_PORT: 8080
       PG_META_DB_HOST: db
@@ -203,7 +215,9 @@ services:
   studio:
     image: supabase/studio:20241202-71e5240
     networks:
-      - rachao-backend
+      rachao-backend:
+        aliases:
+          - studio
     environment:
       STUDIO_PG_META_URL: http://meta:8080
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -228,8 +242,10 @@ services:
   kong:
     image: kong:2.8.1
     networks:
-      - rachao-backend
-      - __TRAEFIK_NETWORK__
+      rachao-backend:
+        aliases:
+          - kong
+      __TRAEFIK_NETWORK__: {}
     entrypoint: ['bash', '/home/kong/entrypoint.sh']
     environment:
       KONG_DATABASE: 'off'

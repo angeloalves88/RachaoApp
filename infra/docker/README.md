@@ -195,6 +195,7 @@ Ou: `./redeploy-app.sh` (faz os tres passos).
 | CORS na API | `CORS_ORIGIN` usa `WEB_DOMAIN`; redeploy app stack |
 | Certificado SSL | Traefik + DNS corretos; labels `letsencryptresolver` |
 | Kong 502 | `docker service logs rachao-supabase_kong`; volumes `infra/supabase/volumes/api/*` no manager |
+| Kong 503 `name resolution failed` em `/auth/v1/*` | Kong nao resolve `auth` no Swarm; redeploy supabase com aliases de rede no compose (servico `auth` etc.) |
 
 ## Dev local (inalterado)
 
