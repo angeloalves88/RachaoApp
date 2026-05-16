@@ -216,7 +216,8 @@ services:
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
       AUTH_JWT_SECRET: ${JWT_SECRET}
       LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-}
-      LOGFLARE_URL: http://analytics:4000
+      # Sem servico analytics no stack; logs desabilitados (igual dev compose)
+      LOGFLARE_URL: http://127.0.0.1:4000
       NEXT_PUBLIC_ENABLE_LOGS: 'false'
       NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
     deploy:
