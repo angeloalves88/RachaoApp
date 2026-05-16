@@ -1,5 +1,12 @@
 # syntax=docker/dockerfile:1
-# API Fastify — bundle esbuild + Prisma Client (layout pnpm)
+# =============================================================================
+# API @rachao/api — producao
+#
+# Estrategia (testada para este monorepo pnpm):
+#   1. esbuild CJS unico (Fastify + @rachao/shared embutidos)
+#   2. @prisma/client externo (copiado do store pnpm apos prisma generate)
+#   3. env.ts NAO usa dotenv em NODE_ENV=production (vars do Swarm)
+# =============================================================================
 FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat openssl curl
 ENV PNPM_HOME="/pnpm"
@@ -16,7 +23,6 @@ COPY packages/shared ./packages/shared
 RUN pnpm install --frozen-lockfile
 RUN pnpm db:generate
 
-# format=cjs evita "Dynamic require of node:events is not supported" (Fastify + ESM bundle)
 RUN cd apps/api && pnpm dlx esbuild@0.25.0 src/server.ts \
   --bundle \
   --platform=node \
@@ -28,7 +34,6 @@ RUN cd apps/api && pnpm dlx esbuild@0.25.0 src/server.ts \
   --external:prisma \
   && test -s dist/server.cjs
 
-# pnpm nao cria node_modules/@prisma no root — copiar client + engines para path fixo
 RUN set -eux; \
   mkdir -p /runtime/node_modules; \
   CLIENT="$(find /app/node_modules -path '*/@prisma/client' -type d | head -1)"; \
@@ -39,11 +44,10 @@ RUN set -eux; \
   if [ -n "$ENGINES" ]; then \
     mkdir -p /runtime/node_modules/.prisma; \
     cp -rL "$ENGINES" /runtime/node_modules/.prisma/client; \
-  fi; \
-  test -f /runtime/node_modules/@prisma/client/package.json
+  fi
 
 FROM node:22-alpine AS runner
-RUN apk add --no-cache curl openssl
+RUN apk add --no-cache curl openssl wget
 WORKDIR /app
 ENV NODE_ENV=production
 

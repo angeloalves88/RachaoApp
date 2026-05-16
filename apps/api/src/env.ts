@@ -3,8 +3,22 @@ import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
 import { z } from 'zod';
 
-const envDir = path.dirname(fileURLToPath(import.meta.url));
-loadEnv({ path: path.join(envDir, '..', '.env') });
+/**
+ * Em producao (Docker Swarm) as variaveis vem do orchestrator — nao de arquivo .env.
+ * Em dev local, carrega apps/api/.env se existir.
+ * Nao usar import.meta.url em bundle (esbuild): fica undefined e quebra o boot.
+ */
+function loadDotenvFile() {
+  if (process.env.NODE_ENV === 'production') return;
+
+  const metaUrl = typeof import.meta !== 'undefined' ? import.meta.url : undefined;
+  if (!metaUrl) return;
+
+  const envDir = path.dirname(fileURLToPath(metaUrl));
+  loadEnv({ path: path.join(envDir, '..', '.env') });
+}
+
+loadDotenvFile();
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

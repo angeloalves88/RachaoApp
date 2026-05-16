@@ -151,6 +151,20 @@ Configure no painel do provedor apontando para a **API**:
 - Asaas: `https://api.rachaoapp.dafetech.com.br/api/webhooks/asaas`
 - Resend: `https://api.rachaoapp.dafetech.com.br/api/webhooks/resend`
 
+## Por que varios erros seguidos na API?
+
+| Erro | Causa real |
+|------|------------|
+| `dist/server.js` not found | `tsc` no monorepo gera `dist/apps/api/src/`, nao `dist/server.js` |
+| `Cannot find package fastify` | Imagem antiga sem `node_modules` pnpm completo |
+| `Dynamic require node:events` | Bundle ESM + Fastify |
+| `import.meta.url` undefined | `env.ts` + esbuild CJS; corrigido: sem dotenv em `production` |
+| `git pull` sem efeito | Falta **`docker build`** — Swarm nao rebuilda imagem |
+
+**Fluxo unico que funciona:** `git pull` → `docker build` → `./verify-api-image.sh` → `./stack-deploy-app.sh`
+
+Ou: `./redeploy-app.sh` (faz os tres passos).
+
 ## Arquivos desta pasta
 
 | Arquivo | Uso |

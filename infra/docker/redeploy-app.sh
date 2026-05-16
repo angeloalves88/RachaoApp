@@ -1,21 +1,27 @@
 #!/usr/bin/env bash
-# Build API + verificacao + deploy app (fluxo completo)
+# Fluxo completo: build API -> validar imagem -> deploy Swarm
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-echo "==> 1/3 Build imagens (API + Web se necessario)"
-"$SCRIPT_DIR/build-images.sh"
+# shellcheck source=lib/env.sh
+source "$SCRIPT_DIR/lib/env.sh"
+env_load_all "$SCRIPT_DIR/.env"
+env_ensure_database_url
 
-echo "==> 2/3 Verificar imagem API"
+echo "==> Build API"
+docker build -f "$SCRIPT_DIR/Dockerfile.api" -t "${CR_IMAGE_API:-rachao-api:latest}" "$REPO_ROOT"
+
+echo "==> Validar imagem (boot + /health)"
 "$SCRIPT_DIR/verify-api-image.sh"
 
-echo "==> 3/3 Deploy stack app"
+echo "==> Deploy stack app"
 "$SCRIPT_DIR/stack-deploy-app.sh"
 
-echo "==> Aguardando API (15s)..."
-sleep 15
+sleep 12
 docker stack services rachao-app
 echo ""
-docker service logs rachao-app_rachao-api --tail 25 2>&1 || true
+curl -sf "https://${API_DOMAIN:-api.rachaoapp.dafetech.com.br}/health" && echo "" || echo "AVISO: curl externo falhou (Traefik?)"
+curl -sf "https://${API_DOMAIN:-api.rachaoapp.dafetech.com.br}/health/db" && echo "" || true

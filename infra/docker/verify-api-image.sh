@@ -1,28 +1,50 @@
 #!/usr/bin/env bash
-# Diagnostico da imagem rachao-api antes do deploy no Swarm
+# Diagnostico da imagem rachao-api — falha se algo estiver errado
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="${SCRIPT_DIR}/.env"
 IMAGE="${CR_IMAGE_API:-rachao-api:latest}"
 
+# shellcheck source=lib/env.sh
+source "$SCRIPT_DIR/lib/env.sh"
+env_load_all "$ENV_FILE"
+env_ensure_database_url
+
 echo "=== Imagem: $IMAGE ==="
-if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "ERRO: imagem nao existe. Rode: ./build-images.sh"
+docker image inspect "$IMAGE" >/dev/null 2>&1 || {
+  echo "ERRO: imagem nao existe. Rode: docker build -f Dockerfile.api -t $IMAGE ../.."
   exit 1
-fi
+}
 
-echo "--- Criada em ---"
-docker image inspect "$IMAGE" --format '{{.Created}}'
+echo "--- Criada: $(docker image inspect "$IMAGE" --format '{{.Created}}') ---"
+echo "--- CMD: $(docker image inspect "$IMAGE" --format '{{json .Config.Cmd}}') ---"
 
-echo "--- CMD / Entrypoint ---"
-docker image inspect "$IMAGE" --format 'CMD: {{json .Config.Cmd}}'
+echo "--- Arquivos na imagem ---"
+docker run --rm --entrypoint sh "$IMAGE" -c '
+  test -s /app/server.cjs || { echo "FALTA server.cjs"; exit 1; }
+  test -f /app/node_modules/@prisma/client/package.json || { echo "FALTA @prisma/client"; exit 1; }
+  ls -la /app/server.cjs
+'
 
-echo "--- Teste: server.cjs existe? ---"
-docker run --rm --entrypoint sh "$IMAGE" -c 'ls -la /app/server.cjs && head -c 80 /app/server.cjs | wc -c'
+echo "--- Boot real (env de producao do .env) ---"
+# shellcheck disable=SC2090
+docker run --rm \
+  -e NODE_ENV=production \
+  -e "PORT=3333" \
+  -e "HOST=0.0.0.0" \
+  -e "CORS_ORIGIN=https://${WEB_DOMAIN}" \
+  -e "WEB_URL=https://${WEB_DOMAIN}" \
+  -e "DATABASE_URL=${DATABASE_URL}" \
+  -e "SUPABASE_URL=https://${SUPABASE_DOMAIN}" \
+  -e "SUPABASE_JWT_SECRET=${JWT_SECRET}" \
+  -e "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}" \
+  --entrypoint sh "$IMAGE" -c '
+    timeout 8 node /app/server.cjs 2>&1 &
+    sleep 4
+    wget -qO- http://127.0.0.1:3333/health || { echo "FALHA: /health"; exit 1; }
+    echo ""
+    echo "OK: API respondeu /health dentro do container"
+  '
 
-echo "--- Teste: @prisma/client existe? ---"
-docker run --rm --entrypoint sh "$IMAGE" -c 'test -f /app/node_modules/@prisma/client/package.json && test -d /app/node_modules/.prisma/client'
-
-echo "--- Teste: node carrega server (5s, pode falhar sem env) ---"
-docker run --rm --entrypoint sh "$IMAGE" -c 'timeout 3 node /app/server.cjs 2>&1 | head -8 || true'
-
-echo "=== OK: imagem parece valida. Proximo: ./stack-deploy-app.sh ==="
+echo "=== Imagem validada. Pode rodar: ./stack-deploy-app.sh ==="
