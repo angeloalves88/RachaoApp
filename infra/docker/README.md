@@ -160,6 +160,7 @@ Configure no painel do provedor apontando para a **API**:
 | `Dynamic require node:events` | Bundle ESM + Fastify |
 | `import.meta.url` undefined | `env.ts` + esbuild CJS; corrigido: sem dotenv em `production` |
 | `git pull` sem efeito | Falta **`docker build`** — Swarm nao rebuilda imagem |
+| verify OK mas Swarm com `server.mjs` | Mesma tag `:latest` — rode `env_swarm_refresh_image` (incluso no `stack-deploy-app.sh`) |
 
 **Fluxo unico que funciona:** `git pull` → `docker build` → `./verify-api-image.sh` → `./stack-deploy-app.sh`
 

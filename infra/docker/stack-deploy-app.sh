@@ -6,6 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/.env"
 STACK="${APP_STACK_NAME:-rachao-app}"
 TRAEFIK_NETWORK="${TRAEFIK_NETWORK:-PDRCOREBOT}"
+API_IMAGE="${CR_IMAGE_API:-rachao-api:latest}"
+WEB_IMAGE="${CR_IMAGE_WEB:-rachao-web:latest}"
 COMPOSE_FILE="${SCRIPT_DIR}/docker-compose-swarm-app.yml"
 RESOLVED_FILE="${SCRIPT_DIR}/.stack-resolved.app.yml"
 
@@ -27,4 +29,12 @@ chmod 600 "$RESOLVED_FILE"
 
 docker stack deploy -c "$RESOLVED_FILE" "$STACK"
 
-echo "Stack $STACK enviado. Acompanhe: docker stack services $STACK"
+# Obrigatorio apos rebuild local com mesma tag :latest
+env_swarm_refresh_image "${STACK}_rachao-api" "$API_IMAGE"
+env_swarm_refresh_image "${STACK}_rachao-web" "$WEB_IMAGE"
+
+echo ""
+echo "Stack $STACK atualizado. Confira:"
+echo "  docker stack services $STACK"
+echo "  docker service logs ${STACK}_rachao-api --tail 10"
+echo "  (deve ser server.cjs — nao server.mjs)"

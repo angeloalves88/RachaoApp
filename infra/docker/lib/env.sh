@@ -118,6 +118,23 @@ env_wait_for_postgres() {
   return 1
 }
 
+# Swarm nao repuxa imagem local quando a tag (:latest) nao mudou.
+# Rebuild + stack deploy deixa tasks na imagem antiga (ex.: server.mjs vs server.cjs).
+env_swarm_refresh_image() {
+  local service_name="$1"
+  local image_name="$2"
+  local image_id
+
+  image_id=$(docker image inspect "$image_name" --format '{{.Id}}')
+  echo "==> Swarm: ${service_name} <- ${image_name}@${image_id}"
+  docker service update \
+    --image "${image_name}@${image_id}" \
+    --force \
+    --detach=false \
+    --update-order stop-first \
+    "$service_name"
+}
+
 # Falha se alguma variavel obrigatoria estiver vazia (evita stack deploy sem POSTGRES_PASSWORD)
 env_require_vars() {
   local v missing=()
