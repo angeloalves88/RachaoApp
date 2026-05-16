@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# API Fastify — bundle esbuild + @prisma/client externo
+# API Fastify — bundle esbuild + Prisma Client copiado do build do monorepo
 FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat openssl curl
 ENV PNPM_HOME="/pnpm"
@@ -13,10 +13,10 @@ COPY apps/api ./apps/api
 COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
 
-RUN pnpm install --frozen-lockfile --filter @rachao/api...
+RUN pnpm install --frozen-lockfile
 RUN pnpm db:generate
 
-# Bundle ESM (inclui @rachao/db e @rachao/shared); Prisma fica em node_modules
+# Bundle unico (inclui @rachao/db e @rachao/shared)
 RUN cd apps/api && pnpm dlx esbuild@0.25.0 src/server.ts \
   --bundle \
   --platform=node \
@@ -25,22 +25,22 @@ RUN cd apps/api && pnpm dlx esbuild@0.25.0 src/server.ts \
   --tsconfig=tsconfig.json \
   --outfile=dist/server.mjs \
   --external:@prisma/client \
-  && test -f dist/server.mjs
-
-# Somente runtime do Prisma Client
-RUN pnpm --filter @rachao/db deploy /prod/prisma --prod
+  --external:prisma \
+  && test -s dist/server.mjs
 
 FROM node:22-alpine AS runner
 RUN apk add --no-cache curl openssl
-ENV NODE_ENV=production
 WORKDIR /app
+ENV NODE_ENV=production
 
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 --ingroup nodejs rachao
 
+# Prisma Client gerado no monorepo (nao usar pnpm deploy isolado — perde o client)
+COPY --from=builder --chown=rachao:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder --chown=rachao:nodejs /app/apps/api/dist/server.mjs ./server.mjs
-COPY --from=builder --chown=rachao:nodejs /prod/prisma/node_modules ./node_modules
-COPY --from=builder --chown=rachao:nodejs /prod/prisma/package.json ./package.json
+
+RUN echo '{"type":"module"}' > package.json
 
 USER rachao
 EXPOSE 3333

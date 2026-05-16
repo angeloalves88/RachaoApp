@@ -41,13 +41,21 @@ nano .env
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = mesmo valor de `ANON_KEY`
 - SMTP real se `ENABLE_EMAIL_AUTOCONFIRM=false`
 
-## 2. Build das imagens
+## 2. Build das imagens (OBRIGATORIO antes de cada deploy de codigo)
 
-Na VPS (ou CI com push para registry):
+`docker stack deploy` e `docker service update` **NAO rebuildam** imagens.
+Se voce so fez `git pull` + `stack-deploy-app.sh`, o Swarm continua com a imagem antiga.
 
 ```bash
-chmod +x build-images.sh run-migrate.sh deploy.sh
+chmod +x build-images.sh verify-api-image.sh redeploy-app.sh
 ./build-images.sh
+./verify-api-image.sh
+```
+
+Ou tudo de uma vez:
+
+```bash
+./redeploy-app.sh
 ```
 
 Imagens: `rachao-web:latest`, `rachao-api:latest`, `rachao-migrate:latest`.
