@@ -24,6 +24,7 @@ export interface TimeAovivo {
     boleiroId: string | null;
     nome: string;
     apelido: string | null;
+    reserva?: boolean;
   }>;
 }
 
@@ -69,6 +70,31 @@ function TimeSelector({
   );
 }
 
+function BoleiroRow({
+  b,
+  selected,
+  onSelect,
+}: {
+  b: TimeAovivo['boleiros'][number];
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={!b.boleiroId}
+      className={`flex w-full items-center gap-2 rounded-lg border p-2 text-left text-sm disabled:opacity-50 ${
+        selected ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
+      }`}
+    >
+      <Avatar name={b.nome} size="sm" />
+      <span className="min-w-0 flex-1 truncate">{b.nome}</span>
+      {b.apelido ? <span className="text-xs text-muted">{b.apelido}</span> : null}
+    </button>
+  );
+}
+
 function BoleiroSelector({
   boleiros,
   value,
@@ -83,8 +109,12 @@ function BoleiroSelector({
   if (!boleiros.length) {
     return <p className="text-sm text-muted">Sem boleiros escalados neste time.</p>;
   }
+  const titulares = boleiros.filter((b) => !b.reserva);
+  const reservas = boleiros.filter((b) => b.reserva);
+  const hasSplit = titulares.length > 0 && reservas.length > 0;
+
   return (
-    <div className="max-h-72 space-y-1 overflow-y-auto">
+    <div className="max-h-72 space-y-2 overflow-y-auto">
       {allowAnonymous ? (
         <button
           type="button"
@@ -97,21 +127,37 @@ function BoleiroSelector({
           Sem atribuição
         </button>
       ) : null}
-      {boleiros.map((b) => (
-        <button
-          key={b.boleiroId ?? b.nome}
-          type="button"
-          onClick={() => b.boleiroId && onChange(b.boleiroId)}
-          disabled={!b.boleiroId}
-          className={`flex w-full items-center gap-2 rounded-lg border p-2 text-left text-sm disabled:opacity-50 ${
-            value === b.boleiroId ? 'border-primary bg-primary/10' : 'border-border bg-surface-2'
-          }`}
-        >
-          <Avatar name={b.nome} size="sm" />
-          <span className="min-w-0 flex-1 truncate">{b.nome}</span>
-          {b.apelido ? <span className="text-xs text-muted">{b.apelido}</span> : null}
-        </button>
-      ))}
+      {hasSplit ? (
+        <>
+          <p className="text-xs font-semibold uppercase text-muted">Titulares</p>
+          {titulares.map((b) => (
+            <BoleiroRow
+              key={b.boleiroId ?? b.nome}
+              b={b}
+              selected={value === b.boleiroId}
+              onSelect={() => b.boleiroId && onChange(b.boleiroId)}
+            />
+          ))}
+          <p className="pt-1 text-xs font-semibold uppercase text-muted">Reservas</p>
+          {reservas.map((b) => (
+            <BoleiroRow
+              key={b.boleiroId ?? b.nome}
+              b={b}
+              selected={value === b.boleiroId}
+              onSelect={() => b.boleiroId && onChange(b.boleiroId)}
+            />
+          ))}
+        </>
+      ) : (
+        boleiros.map((b) => (
+          <BoleiroRow
+            key={b.boleiroId ?? b.nome}
+            b={b}
+            selected={value === b.boleiroId}
+            onSelect={() => b.boleiroId && onChange(b.boleiroId)}
+          />
+        ))
+      )}
     </div>
   );
 }

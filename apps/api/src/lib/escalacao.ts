@@ -122,17 +122,24 @@ export function sortearTimes(
     });
   }
 
+  let idx = 0;
+
+  if (boleirosPorTime === 0) {
+    for (; idx < pool.length; idx++) {
+      const teamIdx = idx % numTimes;
+      times[teamIdx]!.conviteIdsReservas.push(pool[idx]!.conviteId);
+    }
+    return { times, excedentes: 0 };
+  }
+
   const capTitulares = numTimes * boleirosPorTime;
   const capReservas = numTimes * Math.max(0, reservasPorTime);
 
-  // Fase 1: titulares (round-robin ate `boleirosPorTime` por time).
-  let idx = 0;
   for (; idx < pool.length && idx < capTitulares; idx++) {
     const teamIdx = idx % numTimes;
     times[teamIdx]!.conviteIds.push(pool[idx]!.conviteId);
   }
 
-  // Fase 2: reservas (round-robin ate `reservasPorTime` por time).
   if (capReservas > 0) {
     let placed = 0;
     for (; idx < pool.length && placed < capReservas; idx++, placed++) {

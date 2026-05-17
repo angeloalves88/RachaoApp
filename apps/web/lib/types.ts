@@ -206,7 +206,12 @@ export interface PartidaDetalhe {
   boleirosPorTime: number;
   reservasPorTime?: number;
   tempoPartida: number;
+  numPartidas: number;
   tempoTotal: number;
+  aoVivoEstado?: {
+    jogoAtual?: number;
+    confronto?: { timeAId: string; timeBId: string } | null;
+  } | null;
   tipoCobranca: 'por_partida' | 'mensalidade';
   localLivre: string | null;
   observacoes: string | null;

@@ -18,10 +18,10 @@ import { badRequest, forbidden, notFound } from '../lib/errors.js';
 const partidaParam = z.object({ id: z.string().min(1) });
 
 const cronometroSchema = z.object({
-  acao: z.enum(['iniciar', 'pausar', 'retomar', 'ajustar', 'zerar']),
+  acao: z.enum(['iniciar', 'pausar', 'retomar', 'ajustar', 'zerar', 'proximo_jogo']),
   /** Para `ajustar`: setar segundos absolutos (>=0). */
   segundos: z.number().int().min(0).max(24 * 60 * 60).optional(),
-  /** Idempotencia. */
+  jogoAtual: z.number().int().min(1).max(24).optional(),
   clientId: z.string().min(1),
 });
 
@@ -31,22 +31,26 @@ interface CronometroEstado {
   status: CronometroStatus;
   iniciadoEm: string | null;
   segundosAcumulados: number;
+  jogoAtual: number;
+  tempoPartidaSeg: number;
   ultimaAcaoClientId: string | null;
   atualizadoEm: string;
 }
 
-function estadoInicial(): CronometroEstado {
+function estadoInicial(tempoPartidaSeg = 15 * 60): CronometroEstado {
   return {
     status: 'parado',
     iniciadoEm: null,
     segundosAcumulados: 0,
+    jogoAtual: 1,
+    tempoPartidaSeg,
     ultimaAcaoClientId: null,
     atualizadoEm: new Date().toISOString(),
   };
 }
 
-function parseEstado(raw: unknown): CronometroEstado {
-  if (!raw || typeof raw !== 'object') return estadoInicial();
+function parseEstado(raw: unknown, tempoPartidaSeg = 15 * 60): CronometroEstado {
+  if (!raw || typeof raw !== 'object') return estadoInicial(tempoPartidaSeg);
   const o = raw as Record<string, unknown>;
   return {
     status: ((['parado', 'rodando', 'pausado'] as const).includes(o.status as CronometroStatus)
@@ -55,6 +59,9 @@ function parseEstado(raw: unknown): CronometroEstado {
     iniciadoEm: typeof o.iniciadoEm === 'string' ? o.iniciadoEm : null,
     segundosAcumulados:
       typeof o.segundosAcumulados === 'number' ? Math.max(0, o.segundosAcumulados) : 0,
+    jogoAtual: typeof o.jogoAtual === 'number' ? Math.max(1, o.jogoAtual) : 1,
+    tempoPartidaSeg:
+      typeof o.tempoPartidaSeg === 'number' ? o.tempoPartidaSeg : tempoPartidaSeg,
     ultimaAcaoClientId:
       typeof o.ultimaAcaoClientId === 'string' ? o.ultimaAcaoClientId : null,
     atualizadoEm:
@@ -75,6 +82,7 @@ function aplicarAcao(
   acao: z.infer<typeof cronometroSchema>['acao'],
   agora: Date,
   segundosAjuste?: number,
+  jogoAtual?: number,
 ): CronometroEstado {
   const totalAtual = computarSegundosTotais(prev, agora);
   switch (acao) {
@@ -82,6 +90,7 @@ function aplicarAcao(
     case 'retomar':
       if (prev.status === 'rodando') return prev;
       return {
+        ...prev,
         status: 'rodando',
         iniciadoEm: agora.toISOString(),
         segundosAcumulados: prev.segundosAcumulados,
@@ -91,6 +100,7 @@ function aplicarAcao(
     case 'pausar':
       if (prev.status !== 'rodando') return prev;
       return {
+        ...prev,
         status: 'pausado',
         iniciadoEm: null,
         segundosAcumulados: totalAtual,
@@ -99,16 +109,30 @@ function aplicarAcao(
       };
     case 'zerar':
       return {
+        ...prev,
         status: 'parado',
         iniciadoEm: null,
         segundosAcumulados: 0,
         ultimaAcaoClientId: null,
         atualizadoEm: agora.toISOString(),
       };
+    case 'proximo_jogo': {
+      const nextJogo = jogoAtual ?? prev.jogoAtual + 1;
+      return {
+        ...prev,
+        status: 'parado',
+        iniciadoEm: null,
+        segundosAcumulados: 0,
+        jogoAtual: nextJogo,
+        ultimaAcaoClientId: null,
+        atualizadoEm: agora.toISOString(),
+      };
+    }
     case 'ajustar': {
       const segs = segundosAjuste ?? totalAtual;
       const rodando = prev.status === 'rodando';
       return {
+        ...prev,
         status: rodando ? 'rodando' : 'pausado',
         iniciadoEm: rodando ? agora.toISOString() : null,
         segundosAcumulados: rodando ? 0 : segs,
@@ -135,13 +159,14 @@ const cronometroRoutes: FastifyPluginAsync = async (fastify) => {
 
       const partida = await fastify.prisma.partida.findUnique({
         where: { id: params.data.id },
-        select: { grupoId: true, cronometroEstado: true },
+        select: { grupoId: true, cronometroEstado: true, tempoPartida: true },
       });
       if (!partida) return notFound(reply);
       const acesso = await getGrupoAcesso(fastify.prisma, partida.grupoId, auth.sub);
       if (!acesso) return forbidden(reply);
 
-      const estado = parseEstado(partida.cronometroEstado);
+      const tempoPartidaSeg = partida.tempoPartida * 60;
+      const estado = parseEstado(partida.cronometroEstado, tempoPartidaSeg);
       return {
         ...estado,
         segundosAtuais: computarSegundosTotais(estado),
@@ -165,7 +190,7 @@ const cronometroRoutes: FastifyPluginAsync = async (fastify) => {
 
       const partida = await fastify.prisma.partida.findUnique({
         where: { id: params.data.id },
-        select: { grupoId: true, status: true, cronometroEstado: true },
+        select: { grupoId: true, status: true, cronometroEstado: true, tempoPartida: true },
       });
       if (!partida) return notFound(reply);
       const acesso = await getGrupoAcesso(fastify.prisma, partida.grupoId, auth.sub);
@@ -174,7 +199,8 @@ const cronometroRoutes: FastifyPluginAsync = async (fastify) => {
         return badRequest(reply, null, 'Partida nao esta ativa');
       }
 
-      const prev = parseEstado(partida.cronometroEstado);
+      const tempoPartidaSeg = partida.tempoPartida * 60;
+      const prev = parseEstado(partida.cronometroEstado, tempoPartidaSeg);
 
       // Idempotencia por clientId
       if (prev.ultimaAcaoClientId === body.data.clientId) {
@@ -186,7 +212,7 @@ const cronometroRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const agora = new Date();
-      const next = aplicarAcao(prev, body.data.acao, agora, body.data.segundos);
+      const next = aplicarAcao(prev, body.data.acao, agora, body.data.segundos, body.data.jogoAtual);
       const final: CronometroEstado = {
         ...next,
         ultimaAcaoClientId: body.data.clientId,

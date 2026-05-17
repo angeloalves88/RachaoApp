@@ -2,7 +2,8 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { TipoChavePix } from '@rachao/shared/zod';
+import type { CorTime, TipoChavePix } from '@rachao/shared/zod';
+import { CORES_TIME } from '@rachao/shared/zod';
 import type { TipoCobranca } from '@rachao/shared/enums';
 
 export type RegrasState = {
@@ -64,8 +65,11 @@ export interface WizardState {
   data: string;
   hora: string;
   numTimes: number;
+  /** Nome e cor de cada time (length = numTimes). */
+  timesMeta: Array<{ nome: string; cor: CorTime }>;
   boleirosPorTime: number;
   reservasPorTime: number;
+  numPartidas: number;
   tempoPartida: number;
   tempoTotal: number;
 
@@ -117,8 +121,13 @@ const INITIAL: Omit<WizardState, 'setCurrentStep' | 'next' | 'prev' | 'patch' | 
   data: '',
   hora: '19:00',
   numTimes: 2,
+  timesMeta: [
+    { nome: 'Time 1', cor: 'blue' },
+    { nome: 'Time 2', cor: 'orange' },
+  ],
   boleirosPorTime: 5,
   reservasPorTime: 0,
+  numPartidas: 6,
   tempoPartida: 15,
   tempoTotal: 90,
   recorrenteAtivo: false,
@@ -157,7 +166,23 @@ export const useWizardStore = create<WizardState>()(
       setCurrentStep: (i) => set({ currentStep: Math.max(0, Math.min(5, i)) }),
       next: () => set({ currentStep: Math.min(5, get().currentStep + 1) }),
       prev: () => set({ currentStep: Math.max(0, get().currentStep - 1) }),
-      patch: (next) => set(next),
+      patch: (next) => {
+        set((s) => {
+          const merged = { ...s, ...next };
+          if (next.numTimes != null && next.numTimes !== s.numTimes) {
+            merged.timesMeta = buildTimesMeta(next.numTimes, s.timesMeta);
+          }
+          if (next.numPartidas != null || next.tempoPartida != null) {
+            const np = next.numPartidas ?? merged.numPartidas;
+            const tp = next.tempoPartida ?? merged.tempoPartida;
+            merged.tempoTotal = np * tp;
+          }
+          if (next.boleirosPorTime === 0) {
+            merged.reservasPorTime = 0;
+          }
+          return merged;
+        });
+      },
       toggleBoleiro: (id) => {
         const has = get().boleirosIds.includes(id);
         set({
@@ -178,7 +203,7 @@ export const useWizardStore = create<WizardState>()(
     }),
     {
       name: 'rachao-partida-wizard',
-      version: 5,
+      version: 6,
       /**
        * Migracao 1 -> 2: adicionou recorrenteAtivo e semanasOcorrencias.
        * Migracao 2 -> 3: tipoCobrancaPartida + dataLimitePagamentoConvidados na vaquinha.
@@ -207,6 +232,13 @@ export const useWizardStore = create<WizardState>()(
         if (from < 5) {
           return { ...base, currentStep: 0 };
         }
+        if (from < 6) {
+          return {
+            ...base,
+            numPartidas: Math.max(1, Math.floor((old.tempoTotal ?? 90) / (old.tempoPartida ?? 15))),
+            timesMeta: buildTimesMeta(old.numTimes ?? 2, []),
+          };
+        }
         return base;
       },
     },
@@ -231,9 +263,15 @@ export function validateStep(state: WizardState, step: number): string | null {
       if (!state.data) return 'Informe a data';
       if (!state.hora) return 'Informe o horário';
       if (state.numTimes < 2 || state.numTimes > 4) return 'Times inválido';
-      if (state.boleirosPorTime < 3 || state.boleirosPorTime > 11) return 'Boleiros por time inválido';
-      if (state.reservasPorTime < 0 || state.reservasPorTime > 8) return 'Reservas por time inválido';
-      if (state.tempoPartida <= 0 || state.tempoTotal <= 0) return 'Tempos inválidos';
+      if (state.timesMeta.length !== state.numTimes) return 'Defina nome e cor de cada time';
+      if (state.timesMeta.some((t) => !t.nome.trim())) return 'Nome do time obrigatório';
+      if (state.boleirosPorTime < 0 || state.boleirosPorTime > 11) return 'Boleiros por time inválido';
+      if (state.boleirosPorTime > 0 && (state.reservasPorTime < 0 || state.reservasPorTime > 8)) {
+        return 'Reservas por time inválido';
+      }
+      if (state.numPartidas < 1 || state.numPartidas > 24) return 'Quantidade de partidas inválida';
+      if (state.tempoPartida <= 0) return 'Tempo por partida inválido';
+      if (state.tempoTotal !== state.numPartidas * state.tempoPartida) return 'Tempos inconsistentes';
       const dt = combinarDataHora(state.data, state.hora);
       if (!dt || dt.getTime() < Date.now() - 60_000) return 'A data/horário não pode estar no passado';
       if (state.recorrenteAtivo) {
@@ -268,6 +306,20 @@ export function validateStep(state: WizardState, step: number): string | null {
     default:
       return null;
   }
+}
+
+export function buildTimesMeta(
+  numTimes: number,
+  prev: Array<{ nome: string; cor: CorTime }>,
+): Array<{ nome: string; cor: CorTime }> {
+  return Array.from({ length: numTimes }, (_, i) => {
+    const existing = prev[i];
+    if (existing?.nome?.trim()) return existing;
+    return {
+      nome: `Time ${i + 1}`,
+      cor: CORES_TIME[i % CORES_TIME.length]!,
+    };
+  });
 }
 
 export function combinarDataHora(data: string, hora: string): Date | null {

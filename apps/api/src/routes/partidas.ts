@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
+  capacidadePartida,
   convidadoAvulsoCreateSchema,
   convitePresidenteUpdateSchema,
+  CORES_TIME,
   partidaCreateSchema,
   partidaUpdateSchema,
   reenvioConvitesSchema,
@@ -106,10 +108,16 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         boleirosPorTime: p.boleirosPorTime,
         reservasPorTime: p.reservasPorTime ?? 0,
         tempoPartida: p.tempoPartida,
+        numPartidas: p.numPartidas,
         tempoTotal: p.tempoTotal,
         confirmados: p.convites.length,
         totalConvites: p._count.convites,
-        vagasTotais: p.numTimes * (p.boleirosPorTime + (p.reservasPorTime ?? 0)),
+        vagasTotais:
+          capacidadePartida({
+            numTimes: p.numTimes,
+            boleirosPorTime: p.boleirosPorTime,
+            reservasPorTime: p.reservasPorTime,
+          }) ?? 9999,
         serieId: p.serieId,
       })),
     };
@@ -129,9 +137,19 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
     const acesso = await getGrupoAcesso(fastify.prisma, data.grupoId, auth.sub);
     if (!acesso) return forbidden(reply);
 
-    // Capacidade total inclui titulares + reservas (T20+).
-    const capacidade =
-      data.numTimes * (data.boleirosPorTime + (data.reservasPorTime ?? 0));
+    const capacidade = capacidadePartida({
+      numTimes: data.numTimes,
+      boleirosPorTime: data.boleirosPorTime,
+      reservasPorTime: data.reservasPorTime,
+    });
+    const tempoTotal = data.numPartidas * data.tempoPartida;
+
+    const timesMeta =
+      data.times ??
+      Array.from({ length: data.numTimes }, (_, i) => ({
+        nome: `Time ${i + 1}`,
+        cor: CORES_TIME[i % CORES_TIME.length]!,
+      }));
 
     // Valida boleiros: todos pertencem ao grupo e estao ativos.
     let boleirosOrdenados: { id: string; nome: string; email: string | null; celular: string | null }[] = [];
@@ -188,9 +206,10 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
             dataHora,
             numTimes: data.numTimes,
             boleirosPorTime: data.boleirosPorTime,
-            reservasPorTime: data.reservasPorTime ?? 0,
+            reservasPorTime: data.boleirosPorTime === 0 ? 0 : (data.reservasPorTime ?? 0),
+            numPartidas: data.numPartidas,
             tempoPartida: data.tempoPartida,
-            tempoTotal: data.tempoTotal,
+            tempoTotal,
             tipoCobranca: data.tipoCobranca,
             localLivre: data.localLivre ?? null,
             estadioId: data.estadioId ?? null,
@@ -199,6 +218,13 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
             statusEstadio: data.estadioId ? 'pendente' : 'sem_estadio',
             serieId,
             presidentes: { create: { usuarioId: auth.sub } },
+            times: {
+              create: timesMeta.map((t) => ({
+                nome: t.nome,
+                cor: t.cor,
+                golsFinal: 0,
+              })),
+            },
           },
         });
 
@@ -218,7 +244,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         const convites = [] as Awaited<ReturnType<typeof tx.convitePartida.create>>[];
         for (let i = 0; i < boleirosOrdenados.length; i++) {
           const b = boleirosOrdenados[i]!;
-          const dentroDaCapacidade = i < capacidade;
+          const dentroDaCapacidade = capacidade === null || i < capacidade;
           const convite = await tx.convitePartida.create({
             data: {
               partidaId: partida.id,
@@ -257,6 +283,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
             }
           }
           const dentroDaCapacidade =
+            capacidade === null ||
             convites.filter((c2) => c2.status !== 'lista_espera').length < capacidade;
           const convite = await tx.convitePartida.create({
             data: {
@@ -442,7 +469,11 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
       (c) => c.status === 'departamento_medico',
     ).length;
     const vagasTotais =
-      partida.numTimes * (partida.boleirosPorTime + (partida.reservasPorTime ?? 0));
+      capacidadePartida({
+        numTimes: partida.numTimes,
+        boleirosPorTime: partida.boleirosPorTime,
+        reservasPorTime: partida.reservasPorTime,
+      }) ?? 0;
 
     // Conta quantas partidas da mesma serie ainda estao pendentes na data atual ou
     // futura, excluindo a propria. Usado para decidir mostrar a opcao "Cancelar esta
@@ -490,11 +521,13 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         boleirosPorTime: partida.boleirosPorTime,
         reservasPorTime: partida.reservasPorTime ?? 0,
         tempoPartida: partida.tempoPartida,
+        numPartidas: partida.numPartidas,
         tempoTotal: partida.tempoTotal,
         tipoCobranca: partida.tipoCobranca,
         localLivre: partida.localLivre,
         observacoes: partida.observacoes,
         regras: partida.regras,
+        aoVivoEstado: partida.aoVivoEstado,
         grupo: partida.grupo,
         estadio: partida.estadio,
         presidentes: partida.presidentes.map((p) => ({
@@ -651,8 +684,11 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         if (!exists) return notFound(reply, 'Convidado avulso nao encontrado');
       }
 
-      const capacidade =
-        partida.numTimes * (partida.boleirosPorTime + (partida.reservasPorTime ?? 0));
+      const capacidade = capacidadePartida({
+        numTimes: partida.numTimes,
+        boleirosPorTime: partida.boleirosPorTime,
+        reservasPorTime: partida.reservasPorTime,
+      });
       const usadas = await fastify.prisma.convitePartida.count({
         where: {
           partidaId: params.data.id,
@@ -686,7 +722,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      const dentroDaCapacidade = usadas < capacidade;
+      const dentroDaCapacidade = capacidade === null || usadas < capacidade;
       const convite = await fastify.prisma.convitePartida.create({
         data: {
           partidaId: params.data.id,
@@ -1050,6 +1086,76 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       return { ok: true, partida: updated };
+    },
+  );
+
+  const aoVivoEstadoPatchSchema = z.object({
+    jogoAtual: z.number().int().min(1).max(24).optional(),
+    confronto: z
+      .object({
+        timeAId: z.string().min(1),
+        timeBId: z.string().min(1),
+      })
+      .optional()
+      .nullable(),
+  });
+
+  fastify.get(
+    '/api/partidas/:id/ao-vivo-estado',
+    { preHandler: fastify.requireAuth },
+    async (request, reply) => {
+      const auth = request.user!;
+      const params = idParamSchema.safeParse(request.params);
+      if (!params.success) return badRequest(reply, params.error.flatten().fieldErrors);
+      const partida = await fastify.prisma.partida.findUnique({
+        where: { id: params.data.id },
+        select: { grupoId: true, aoVivoEstado: true, numPartidas: true },
+      });
+      if (!partida) return notFound(reply);
+      const acesso = await getGrupoAcesso(fastify.prisma, partida.grupoId, auth.sub);
+      if (!acesso) return forbidden(reply);
+      return {
+        aoVivoEstado: partida.aoVivoEstado ?? { jogoAtual: 1 },
+        numPartidas: partida.numPartidas,
+      };
+    },
+  );
+
+  fastify.patch(
+    '/api/partidas/:id/ao-vivo-estado',
+    { preHandler: fastify.requireAuth },
+    async (request, reply) => {
+      const auth = request.user!;
+      const params = idParamSchema.safeParse(request.params);
+      if (!params.success) return badRequest(reply, params.error.flatten().fieldErrors);
+      const body = aoVivoEstadoPatchSchema.safeParse(request.body ?? {});
+      if (!body.success) return badRequest(reply, body.error.flatten().fieldErrors);
+
+      const partida = await fastify.prisma.partida.findUnique({
+        where: { id: params.data.id },
+        select: { grupoId: true, status: true, aoVivoEstado: true },
+      });
+      if (!partida) return notFound(reply);
+      if (partida.status !== 'em_andamento') {
+        return badRequest(reply, null, 'Partida nao esta em andamento');
+      }
+      const acesso = await getGrupoAcesso(fastify.prisma, partida.grupoId, auth.sub);
+      if (!acesso) return forbidden(reply);
+
+      const prev =
+        partida.aoVivoEstado && typeof partida.aoVivoEstado === 'object'
+          ? (partida.aoVivoEstado as Record<string, unknown>)
+          : {};
+      const next = {
+        ...prev,
+        ...(body.data.jogoAtual != null ? { jogoAtual: body.data.jogoAtual } : {}),
+        ...(body.data.confronto !== undefined ? { confronto: body.data.confronto } : {}),
+      };
+      await fastify.prisma.partida.update({
+        where: { id: params.data.id },
+        data: { aoVivoEstado: next as object },
+      });
+      return { ok: true, aoVivoEstado: next };
     },
   );
 

@@ -34,6 +34,7 @@ import {
   updateConviteStatus,
 } from '@/lib/partidas-actions';
 import type { PartidaConvite, PartidaDetalhe, StatusConvite } from '@/lib/types';
+import { ConvidadoAvulsoDialog } from '@/components/partidas/convidado-avulso-dialog';
 import { ReenviarModal } from './reenviar-modal';
 
 interface Props {
@@ -81,10 +82,15 @@ export function PresencasClient({ partida }: Props) {
     return partida.convites.filter((c) => c.status === tab);
   }, [partida.convites, tab]);
 
+  const capacidadeIlimitada = partida.boleirosPorTime === 0;
   const totalVagas = partida.resumo.vagasTotais;
   const ocupadas = partida.resumo.confirmados + partida.resumo.pendentes;
-  const progresso = totalVagas > 0 ? Math.min(100, Math.round((ocupadas / totalVagas) * 100)) : 0;
-  const partidaCompleta = partida.resumo.confirmados >= totalVagas && totalVagas > 0;
+  const progresso =
+    !capacidadeIlimitada && totalVagas > 0
+      ? Math.min(100, Math.round((ocupadas / totalVagas) * 100))
+      : 0;
+  const partidaCompleta =
+    !capacidadeIlimitada && partida.resumo.confirmados >= totalVagas && totalVagas > 0;
   const poucoConfirmado =
     !partidaCompleta &&
     !readonly &&
@@ -185,17 +191,25 @@ export function PresencasClient({ partida }: Props) {
           </div>
           <div className="space-y-1">
             <p className="text-xs text-muted">
-              {ocupadas} de {totalVagas} vagas preenchidas
+              {capacidadeIlimitada
+                ? `${partida.resumo.confirmados} confirmados · vagas ilimitadas`
+                : `${ocupadas} de ${totalVagas} vagas preenchidas`}
             </p>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-offset">
-              <div
-                className="h-full bg-primary transition-all"
-                style={{ width: `${progresso}%` }}
-              />
-            </div>
+            {!capacidadeIlimitada ? (
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-offset">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${progresso}%` }}
+                />
+              </div>
+            ) : null}
           </div>
           {!readonly ? (
             <div className="flex flex-wrap gap-2 pt-1">
+              <ConvidadoAvulsoDialog
+                partidaId={partida.id}
+                onAdded={() => startTransition(() => router.refresh())}
+              />
               <Button
                 size="sm"
                 variant="outline"

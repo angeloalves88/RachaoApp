@@ -13,7 +13,8 @@ export interface AovivoTimeSnap {
 export interface AovivoActiveSession {
   partidaId: string;
   titulo: string;
-  tempoTotalMin: number;
+  tempoPartidaMin: number;
+  numPartidas: number;
   times: AovivoTimeSnap[];
 }
 
@@ -36,10 +37,17 @@ export function getActiveSession(): AovivoActiveSession | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<AovivoActiveSession>;
     if (!parsed.partidaId || !parsed.titulo) return null;
+    const tempoPartidaMin =
+      typeof parsed.tempoPartidaMin === 'number'
+        ? parsed.tempoPartidaMin
+        : typeof (parsed as { tempoTotalMin?: number }).tempoTotalMin === 'number'
+          ? (parsed as { tempoTotalMin: number }).tempoTotalMin
+          : 15;
     return {
       partidaId: parsed.partidaId,
       titulo: parsed.titulo,
-      tempoTotalMin: typeof parsed.tempoTotalMin === 'number' ? parsed.tempoTotalMin : 90,
+      tempoPartidaMin,
+      numPartidas: typeof parsed.numPartidas === 'number' ? parsed.numPartidas : 6,
       times: Array.isArray(parsed.times) ? parsed.times : [],
     };
   } catch {

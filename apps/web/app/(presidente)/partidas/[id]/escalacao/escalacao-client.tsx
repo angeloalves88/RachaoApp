@@ -19,6 +19,7 @@ import { formatDataPartida } from '@/lib/format';
 import { Avatar } from '@/components/ui/avatar';
 import { AutoMode } from './auto-mode';
 import { ManualMode } from './manual-mode';
+import { ConvidadoAvulsoDialog } from '@/components/partidas/convidado-avulso-dialog';
 import { ShareModal } from './share-modal';
 
 interface Props {
@@ -48,6 +49,11 @@ export function EscalacaoClient({ initial }: Props) {
             {partida.grupo.nome} · {formatDataPartida(partida.dataHora)}
           </p>
         </div>
+        <ConvidadoAvulsoDialog
+          partidaId={partida.id}
+          disabled={readOnly}
+          onAdded={() => router.refresh()}
+        />
         <ShareModal partidaId={partida.id} disabled={!hasEscalacao || partida.status === 'cancelada'} />
       </header>
 

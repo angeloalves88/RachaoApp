@@ -290,6 +290,7 @@ const escalacaoRoutes: FastifyPluginAsync = async (fastify) => {
           boleirosPorTime: partida.boleirosPorTime,
           reservasPorTime: partida.reservasPorTime ?? 0,
           tempoPartida: partida.tempoPartida,
+          numPartidas: partida.numPartidas,
           tempoTotal: partida.tempoTotal,
           regras: partida.regras,
           grupo: partida.grupo,
@@ -463,14 +464,14 @@ const escalacaoRoutes: FastifyPluginAsync = async (fastify) => {
             return badRequest(reply, null, 'Boleiro bloqueado nao pode ser escalado');
           }
         }
-        if (titIds.length > partida.boleirosPorTime) {
+        if (partida.boleirosPorTime > 0 && titIds.length > partida.boleirosPorTime) {
           return badRequest(
             reply,
             null,
             `Time "${t.nome}" excede o limite de ${partida.boleirosPorTime} titulares`,
           );
         }
-        if (resIds.length > reservasPorTime) {
+        if (partida.boleirosPorTime > 0 && reservasPorTime > 0 && resIds.length > reservasPorTime) {
           return badRequest(
             reply,
             null,

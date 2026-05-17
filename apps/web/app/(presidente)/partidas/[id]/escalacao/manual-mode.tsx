@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   DndContext,
   DragOverlay,
@@ -107,6 +107,7 @@ function SortablePlayer({
   onCapitao,
   onRemove,
   variant = 'team',
+  teamAssignButtons,
 }: {
   id: string;
   nome: string;
@@ -117,6 +118,7 @@ function SortablePlayer({
   onCapitao: () => void;
   onRemove: () => void;
   variant?: 'pool' | 'team';
+  teamAssignButtons?: ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
@@ -177,7 +179,48 @@ function SortablePlayer({
           </Button>
         </>
       ) : null}
+      {variant === 'pool' && teamAssignButtons ? (
+        <div className="flex shrink-0 flex-wrap gap-0.5" onPointerDown={(e) => e.stopPropagation()}>
+          {teamAssignButtons}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function TeamQuickAssign({
+  numTimes,
+  boleirosPorTime,
+  onAssign,
+}: {
+  numTimes: number;
+  boleirosPorTime: number;
+  onAssign: (teamIdx: number, reserva: boolean) => void;
+}) {
+  return (
+    <>
+      {Array.from({ length: numTimes }, (_, i) => (
+        <span key={i} className="inline-flex gap-0.5">
+          <button
+            type="button"
+            disabled={boleirosPorTime === 0}
+            title={boleirosPorTime === 0 ? 'Sem titulares neste formato' : `Titular — ${i + 1}`}
+            onClick={() => onAssign(i, false)}
+            className="rounded border border-border px-1 py-0.5 text-[10px] font-bold disabled:opacity-30"
+          >
+            T{i + 1}
+          </button>
+          <button
+            type="button"
+            title={`Reserva — ${i + 1}`}
+            onClick={() => onAssign(i, true)}
+            className="rounded border border-dashed border-border px-1 py-0.5 text-[10px] font-bold"
+          >
+            R{i + 1}
+          </button>
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -325,7 +368,15 @@ export function ManualMode({
 
     if (overCont !== POOL_ID) {
       const dest = columns[overCont] ?? [];
-      const limit = isTeamContainer(overCont) ? boleirosPorTime : reservasPorTime;
+      if (isTeamContainer(overCont) && boleirosPorTime === 0) {
+        toast.error('Neste formato use a zona de reservas (R1, R2…)');
+        return;
+      }
+      const limit = isTeamContainer(overCont)
+        ? boleirosPorTime
+        : boleirosPorTime === 0
+          ? Number.MAX_SAFE_INTEGER
+          : reservasPorTime;
       if (dest.length >= limit && !dest.includes(aId)) {
         toast.error(isTeamContainer(overCont) ? 'Time completo' : 'Reservas completas');
         return;
@@ -379,6 +430,34 @@ export function ManualMode({
     });
   }
 
+  const assignPlayer = useCallback(
+    (conviteId: string, teamIdx: number, asReserva: boolean) => {
+      const target = asReserva ? reservaId(teamIdx) : teamId(teamIdx);
+      if (!asReserva && boleirosPorTime === 0) return;
+      setState((s) => {
+        const next = { ...s.columns };
+        for (const key of Object.keys(next)) {
+          next[key] = (next[key] ?? []).filter((id) => id !== conviteId);
+        }
+        const dest = [...(next[target] ?? [])];
+        const limit = asReserva
+          ? boleirosPorTime === 0
+            ? Number.MAX_SAFE_INTEGER
+            : reservasPorTime
+          : boleirosPorTime;
+        if (dest.length >= limit && !dest.includes(conviteId)) {
+          toast.error(asReserva ? 'Reservas completas neste time' : 'Time completo');
+          return s;
+        }
+        if (!dest.includes(conviteId)) dest.push(conviteId);
+        next[target] = dest;
+        next[POOL_ID] = (next[POOL_ID] ?? []).filter((id) => id !== conviteId);
+        return { columns: next, timeMeta: normalizeMeta(next, s.timeMeta, numTimes) };
+      });
+    },
+    [boleirosPorTime, reservasPorTime, numTimes],
+  );
+
   async function confirmar() {
     const timesPayload = Array.from({ length: numTimes }, (_, i) => {
       const tit = columns[teamId(i)] ?? [];
@@ -394,6 +473,13 @@ export function ManualMode({
     });
 
     for (const t of timesPayload) {
+      if (boleirosPorTime === 0) {
+        if (t.conviteIds.length + t.conviteIdsReservas.length < 1) {
+          toast.error('Cada time precisa de ao menos um jogador.');
+          return;
+        }
+        continue;
+      }
       if (t.conviteIds.length < 1) {
         toast.error('Cada time precisa de ao menos um titular.');
         return;
@@ -402,7 +488,7 @@ export function ManualMode({
         toast.error(`Limite de ${boleirosPorTime} titulares por time.`);
         return;
       }
-      if (t.conviteIdsReservas.length > reservasPorTime) {
+      if (reservasPorTime > 0 && t.conviteIdsReservas.length > reservasPorTime) {
         toast.error(`Limite de ${reservasPorTime} reservas por time.`);
         return;
       }
@@ -429,7 +515,7 @@ export function ManualMode({
 
   if (readOnly) {
     return (
-      <div className={`grid gap-3 sm:grid-cols-2`}>
+      <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start">
         {Array.from({ length: numTimes }, (_, i) => {
           const ids = ro.columns[teamId(i)] ?? [];
           const idsRes = ro.columns[reservaId(i)] ?? [];
@@ -491,6 +577,13 @@ export function ManualMode({
                       onCapitao={() => {}}
                       onRemove={() => {}}
                       variant="pool"
+                      teamAssignButtons={
+                        <TeamQuickAssign
+                          numTimes={numTimes}
+                          boleirosPorTime={boleirosPorTime}
+                          onAssign={(idx, res) => assignPlayer(id, idx, res)}
+                        />
+                      }
                     />
                   </div>
                 );
@@ -499,7 +592,7 @@ export function ManualMode({
           </div>
         </DroppableCol>
 
-        <div className={`grid gap-3 sm:grid-cols-2`}>
+        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start">
           {Array.from({ length: numTimes }, (_, i) => {
             const cid = teamId(i);
             const rid = reservaId(i);
@@ -518,7 +611,7 @@ export function ManualMode({
             return (
               <div
                 key={cid}
-                className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2 p-2"
+                className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-surface-2 p-2 lg:min-w-[240px] lg:flex-1"
                 style={{ borderTopWidth: 4, borderTopColor: COR_HEX[meta.cor] }}
               >
                 <div className="flex flex-wrap items-center gap-2">

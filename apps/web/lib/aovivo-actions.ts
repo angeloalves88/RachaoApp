@@ -87,3 +87,63 @@ export async function encerrarPartida(partidaId: string) {
     },
   );
 }
+
+export interface AoVivoEstado {
+  jogoAtual?: number;
+  confronto?: { timeAId: string; timeBId: string } | null;
+}
+
+export async function getAoVivoEstado(partidaId: string) {
+  return apiFetch<{ aoVivoEstado: AoVivoEstado; numPartidas: number }>(
+    `/api/partidas/${partidaId}/ao-vivo-estado`,
+    { token: await token() },
+  );
+}
+
+export async function patchAoVivoEstado(
+  partidaId: string,
+  body: { jogoAtual?: number; confronto?: { timeAId: string; timeBId: string } | null },
+) {
+  return apiFetch<{ ok: true; aoVivoEstado: AoVivoEstado }>(
+    `/api/partidas/${partidaId}/ao-vivo-estado`,
+    {
+      method: 'PATCH',
+      token: await token(),
+      body,
+    },
+  );
+}
+
+export interface CronometroApiState {
+  status: 'parado' | 'rodando' | 'pausado';
+  iniciadoEm: string | null;
+  segundosAcumulados: number;
+  jogoAtual: number;
+  tempoPartidaSeg: number;
+  segundosAtuais: number;
+}
+
+export async function getCronometro(partidaId: string) {
+  return apiFetch<CronometroApiState>(`/api/partidas/${partidaId}/cronometro`, {
+    token: await token(),
+  });
+}
+
+export async function postCronometro(
+  partidaId: string,
+  body: {
+    acao: 'iniciar' | 'pausar' | 'retomar' | 'ajustar' | 'zerar' | 'proximo_jogo';
+    segundos?: number;
+    jogoAtual?: number;
+    clientId: string;
+  },
+) {
+  return apiFetch<CronometroApiState & { idempotent?: boolean }>(
+    `/api/partidas/${partidaId}/cronometro`,
+    {
+      method: 'POST',
+      token: await token(),
+      body,
+    },
+  );
+}

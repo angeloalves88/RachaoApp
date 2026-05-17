@@ -91,6 +91,10 @@ export async function promoverListaEspera(
     return { promovidos: [] };
   }
 
+  if (partida.boleirosPorTime === 0) {
+    return { promovidos: [] };
+  }
+
   const capacidade =
     partida.numTimes * (partida.boleirosPorTime + (partida.reservasPorTime ?? 0));
 

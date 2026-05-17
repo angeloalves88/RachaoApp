@@ -50,7 +50,7 @@ export function Step6Revisao({ nomeGrupo, totalBoleirosAvailable }: Step6Props) 
         <p className="text-xs text-muted">
           {state.numTimes} times · {state.boleirosPorTime} boleiros por time
           {state.reservasPorTime > 0 ? ` + ${state.reservasPorTime} reservas` : ''} ·{' '}
-          {state.tempoPartida} min/partida · {state.tempoTotal} min totais
+          {state.numPartidas} partidas × {state.tempoPartida} min ({state.tempoTotal} min total)
         </p>
         <p className="mt-1 text-xs font-medium text-foreground">
           Cobrança da partida:{' '}

@@ -5,9 +5,11 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { TimePicker } from '@/components/ui/time-picker';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import { Segmented } from '@/components/ui/segmented';
+import { Input } from '@/components/ui/input';
 import { useWizardStore } from './wizard-store';
 import { Repeat } from 'lucide-react';
 import type { TipoCobranca } from '@rachao/shared/enums';
+import { CORES_TIME, type CorTime } from '@rachao/shared/zod';
 
 const TIMES_OPTIONS = [
   { value: '2', label: '2 times' },
@@ -15,11 +17,21 @@ const TIMES_OPTIONS = [
   { value: '4', label: '4 times' },
 ];
 
+const COR_LABELS: Record<CorTime, string> = {
+  orange: 'Laranja',
+  blue: 'Azul',
+  green: 'Verde',
+  yellow: 'Amarelo',
+  red: 'Vermelho',
+  purple: 'Roxo',
+};
+
 export function Step1Dados() {
   const state = useWizardStore();
   const totalTitulares = state.numTimes * state.boleirosPorTime;
-  const totalReservas = state.numTimes * state.reservasPorTime;
-  const totalVagas = totalTitulares + totalReservas;
+  const reservasIlimitadas = state.boleirosPorTime === 0;
+  const totalReservas = reservasIlimitadas ? 0 : state.numTimes * state.reservasPorTime;
+  const totalVagas = reservasIlimitadas ? null : totalTitulares + totalReservas;
   const hint =
     state.numTimes >= 3
       ? 'Com 3+ times, o que perder sai e o próximo entra.'
@@ -91,13 +103,55 @@ export function Step1Dados() {
         />
       </Field>
 
+      <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
+        <p className="text-sm font-medium">Times — nome e cor</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {state.timesMeta.map((t, i) => (
+            <div key={i} className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 p-3">
+              <Input
+                value={t.nome}
+                onChange={(e) => {
+                  const timesMeta = [...state.timesMeta];
+                  timesMeta[i] = { ...timesMeta[i]!, nome: e.target.value };
+                  state.patch({ timesMeta });
+                }}
+                placeholder={`Time ${i + 1}`}
+                aria-label={`Nome do time ${i + 1}`}
+              />
+              <select
+                className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+                value={t.cor}
+                onChange={(e) => {
+                  const timesMeta = [...state.timesMeta];
+                  timesMeta[i] = { ...timesMeta[i]!, cor: e.target.value as CorTime };
+                  state.patch({ timesMeta });
+                }}
+                aria-label={`Cor do time ${i + 1}`}
+              >
+                {CORES_TIME.map((c) => (
+                  <option key={c} value={c}>
+                    {COR_LABELS[c]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <Field
-        label="Boleiros por time"
-        hint={`Total de vagas: ${totalVagas} (${totalTitulares} titulares + ${totalReservas} reservas)`}
+        label="Boleiros por time (titulares)"
+        hint={
+          reservasIlimitadas
+            ? '0 titulares = todos entram como reserva (ilimitado por time).'
+            : totalVagas != null
+              ? `Total de vagas: ${totalVagas} (${totalTitulares} titulares + ${totalReservas} reservas)`
+              : undefined
+        }
       >
         <NumberStepper
           value={state.boleirosPorTime}
-          min={3}
+          min={0}
           max={11}
           onChange={(v) => state.patch({ boleirosPorTime: v })}
           suffix="por time"
@@ -105,19 +159,18 @@ export function Step1Dados() {
         />
       </Field>
 
-      <Field
-        label="Reservas por time"
-        hint="Boleiros extras escalados como reservas. Use 0 para sem reservas."
-      >
-        <NumberStepper
-          value={state.reservasPorTime}
-          min={0}
-          max={5}
-          onChange={(v) => state.patch({ reservasPorTime: v })}
-          suffix="por time"
-          ariaLabel="Reservas por time"
-        />
-      </Field>
+      {!reservasIlimitadas ? (
+        <Field label="Reservas por time" hint="Boleiros extras escalados como reservas. Use 0 para sem reservas.">
+          <NumberStepper
+            value={state.reservasPorTime}
+            min={0}
+            max={5}
+            onChange={(v) => state.patch({ reservasPorTime: v })}
+            suffix="por time"
+            ariaLabel="Reservas por time"
+          />
+        </Field>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Tempo por partida">
@@ -131,24 +184,24 @@ export function Step1Dados() {
             ariaLabel="Tempo por partida"
           />
         </Field>
-        <Field label="Tempo total">
+        <Field label="Quantidade de partidas">
           <NumberStepper
-            value={state.tempoTotal}
-            min={30}
-            max={240}
-            step={15}
-            onChange={(v) => state.patch({ tempoTotal: v })}
-            suffix="min"
-            ariaLabel="Tempo total do evento"
+            value={state.numPartidas}
+            min={1}
+            max={12}
+            onChange={(v) => state.patch({ numPartidas: v })}
+            suffix="jogos"
+            ariaLabel="Quantidade de partidas"
           />
         </Field>
       </div>
 
-      {state.tempoTotal < state.tempoPartida * 2 ? (
-        <p className="rounded-md border border-warning/40 bg-warning-highlight px-3 py-2 text-xs text-warning">
-          Atenção: o tempo total parece curto pra esse formato. Confirma se está certo.
-        </p>
-      ) : null}
+      <p className="rounded-md border border-border bg-surface-offset/80 px-3 py-2 text-sm text-muted">
+        Tempo total do evento:{' '}
+        <strong className="text-foreground">{state.tempoTotal} min</strong>
+        {' '}
+        ({state.numPartidas} × {state.tempoPartida} min — cada partida com a mesma duração)
+      </p>
 
       <div className="rounded-lg border border-border bg-surface p-4">
         <button
@@ -157,50 +210,25 @@ export function Step1Dados() {
           aria-pressed={state.recorrenteAtivo}
           className={
             'flex w-full items-start gap-3 text-left ' +
-            (state.recorrenteAtivo ? 'text-foreground' : 'text-muted')
+            (state.recorrenteAtivo ? 'text-primary' : 'text-foreground')
           }
         >
-          <Repeat
-            size={20}
-            className={state.recorrenteAtivo ? 'mt-0.5 text-primary' : 'mt-0.5'}
-            aria-hidden
-          />
-          <div className="flex-1">
-            <p className="font-medium">Repetir toda semana</p>
-            <p className="text-xs text-muted">
-              Cria várias peladas no mesmo dia da semana e horário (ex.: toda quinta às 20h), espaçadas de 7 em 7 dias a partir da data acima.
-            </p>
-          </div>
-          <div
-            role="switch"
-            aria-checked={state.recorrenteAtivo}
-            className={
-              'relative mt-0.5 h-6 w-10 shrink-0 rounded-full border transition-colors ' +
-              (state.recorrenteAtivo ? 'border-primary bg-primary' : 'border-border bg-surface-offset')
-            }
-          >
-            <span
-              className={
-                'absolute top-[1px] h-5 w-5 rounded-full bg-white shadow transition-transform ' +
-                (state.recorrenteAtivo ? 'translate-x-4' : 'translate-x-0.5')
-              }
-            />
-          </div>
+          <Repeat className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
+          <span>
+            <span className="block font-medium">Repetir semanalmente</span>
+            <span className="text-xs text-muted">Mesmo dia da semana e horário nas próximas semanas.</span>
+          </span>
         </button>
-
         {state.recorrenteAtivo ? (
-          <div className="mt-4 border-t border-border pt-4">
-            <Field
-              label="Quantas peladas criar?"
-              hint="Inclui a primeira data. Máximo 24 semanas."
-            >
+          <div className="mt-3 border-t border-border pt-3">
+            <Field label="Quantas ocorrências (incluindo esta data)?">
               <NumberStepper
                 value={state.semanasOcorrencias}
                 min={2}
                 max={24}
                 onChange={(v) => state.patch({ semanasOcorrencias: v })}
                 suffix="semanas"
-                ariaLabel="Número de ocorrências semanais"
+                ariaLabel="Ocorrências da série"
               />
             </Field>
           </div>

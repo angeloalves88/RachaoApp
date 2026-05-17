@@ -14,6 +14,8 @@ import {
   Square,
   Trash2,
   Trophy,
+  UserPlus,
+  Users,
   Wifi,
   WifiOff,
   X,
@@ -33,8 +35,10 @@ import {
   type EventoApi,
   encerrarPartida,
   getToken,
+  patchAoVivoEstado,
   removerEvento,
 } from '@/lib/aovivo-actions';
+import { ConvidadoAvulsoDialog } from '@/components/partidas/convidado-avulso-dialog';
 import {
   discardFailed,
   enqueueEvento,
@@ -98,7 +102,17 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
   const [encerrando, setEncerrando] = useState(false);
   const [defaultTimeId, setDefaultTimeId] = useState<string | null>(null);
   const [syncedFlash, setSyncedFlash] = useState(false);
+  const [jogadoresOpen, setJogadoresOpen] = useState(false);
+  const [confrontoOpen, setConfrontoOpen] = useState(false);
+  const [confronto, setConfronto] = useState<{
+    timeAId: string;
+    timeBId: string;
+  } | null>(() => partida.aoVivoEstado?.confronto ?? null);
   const flushingRef = useRef(false);
+
+  const numPartidas =
+    partida.numPartidas ??
+    Math.max(1, Math.floor(partida.tempoTotal / Math.max(1, partida.tempoPartida)));
 
   const cartaoAzulAtivo = !!(
     partida.regras as Record<string, { ativo?: boolean }>
@@ -124,9 +138,22 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
         boleiroId: b.boleiroId,
         nome: b.nome,
         apelido: b.apelido,
+        reserva: b.reserva,
       })),
     }));
   }, [escalacao]);
+
+  const timesPlacar = useMemo(() => {
+    if (partida.numTimes <= 2) return times;
+    if (!confronto) return times.slice(0, 2);
+    return times.filter((t) => t.id === confronto.timeAId || t.id === confronto.timeBId);
+  }, [times, confronto, partida.numTimes]);
+
+  useEffect(() => {
+    if (partida.numTimes > 2 && !confronto && times.length >= 2) {
+      setConfrontoOpen(true);
+    }
+  }, [partida.numTimes, confronto, times.length]);
 
   // Placar derivado de eventos
   const placarPorTime = useMemo(() => {
@@ -144,10 +171,18 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     setActiveSession({
       partidaId: partida.id,
       titulo: partida.grupo.nome,
-      tempoTotalMin: partida.tempoTotal,
+      tempoPartidaMin: partida.tempoPartida,
+      numPartidas,
       times: times.map((t) => ({ id: t.id, nome: t.nome, cor: t.cor })),
     });
-  }, [partida.id, partida.status, partida.grupo.nome, partida.tempoTotal, times]);
+  }, [
+    partida.id,
+    partida.status,
+    partida.grupo.nome,
+    partida.tempoPartida,
+    numPartidas,
+    times,
+  ]);
 
   useEffect(() => {
     if (partida.status !== 'em_andamento') return;
@@ -332,6 +367,10 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
           <h1 className="font-display text-xl font-bold">Ao vivo</h1>
           <p className="truncate text-sm text-muted">{partida.grupo.nome}</p>
         </div>
+        <Button type="button" size="sm" variant="outline" onClick={() => setJogadoresOpen(true)}>
+          <Users className="h-4 w-4" />
+          Jogadores
+        </Button>
         <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/15 px-2 py-1 text-xs font-medium text-warning">
           <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
           EM ANDAMENTO
@@ -411,22 +450,46 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
         {/* Cronômetro */}
         <Cronometro
           partidaId={partida.id}
-          tempoTotalMin={partida.tempoTotal}
+          tempoPartidaMin={partida.tempoPartida}
+          numPartidas={numPartidas}
           onMinutoChange={setMinuto}
+          onProximoJogo={() => {
+            void patchAoVivoEstado(partida.id, {
+              jogoAtual: Math.min(
+                numPartidas,
+                (partida.aoVivoEstado?.jogoAtual ?? 1) + 1,
+              ),
+            }).catch(() => {});
+          }}
         />
+
+        {partida.numTimes > 2 ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-muted">
+              Confronto:{' '}
+              {confronto
+                ? `${times.find((t) => t.id === confronto.timeAId)?.nome ?? '?'} × ${
+                    times.find((t) => t.id === confronto.timeBId)?.nome ?? '?'
+                  }`
+                : 'Escolha os dois times em campo'}
+            </p>
+            <Button type="button" size="sm" variant="outline" onClick={() => setConfrontoOpen(true)}>
+              Alterar confronto
+            </Button>
+          </div>
+        ) : null}
 
         {/* Placar */}
         <section className="-mx-2 overflow-x-auto px-2">
-          <div
-            className={`grid min-w-fit gap-2 ${
-              times.length === 2
+          <div className={`grid min-w-fit gap-2 ${
+              timesPlacar.length === 2
                 ? 'grid-cols-2'
-                : times.length === 3
+                : timesPlacar.length === 3
                   ? 'grid-cols-3'
                   : 'grid-cols-4'
             }`}
           >
-            {times.map((t) => (
+            {timesPlacar.map((t) => (
               <PlacarTime
                 key={t.id}
                 time={t}
@@ -600,6 +663,52 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
           );
         }}
       />
+
+      <ConfrontoDialog
+        open={confrontoOpen}
+        onOpenChange={setConfrontoOpen}
+        times={times}
+        initial={confronto}
+        onConfirm={async (c) => {
+          await patchAoVivoEstado(partida.id, { confronto: c });
+          setConfronto(c);
+          setConfrontoOpen(false);
+        }}
+      />
+
+      <Dialog open={jogadoresOpen} onOpenChange={setJogadoresOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Jogadores</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted">
+            Adicione convidados ou altere a escalação sem sair do ao-vivo.
+          </p>
+          <div className="flex flex-col gap-2 pt-2">
+            <ConvidadoAvulsoDialog
+              partidaId={partida.id}
+              onAdded={() => router.refresh()}
+              trigger={
+                <Button type="button" variant="secondary" className="w-full justify-start">
+                  <UserPlus className="h-4 w-4" />
+                  Adicionar convidado avulso
+                </Button>
+              }
+            />
+            <Button type="button" variant="outline" className="w-full" asChild>
+              <Link href={`/partidas/${partida.id}/escalacao`}>Abrir escalação</Link>
+            </Button>
+            <Button type="button" variant="outline" className="w-full" asChild>
+              <Link href={`/partidas/${partida.id}/presencas`}>Abrir presenças</Link>
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setJogadoresOpen(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmar encerrar */}
       <Dialog open={encerrarOpen} onOpenChange={setEncerrarOpen}>
@@ -797,6 +906,95 @@ function EventoBadge({
     <span className="rounded-full bg-surface-offset px-2 py-0.5 text-xs font-semibold">
       {tipo}
     </span>
+  );
+}
+
+function ConfrontoDialog({
+  open,
+  onOpenChange,
+  times,
+  initial,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  times: TimeAovivo[];
+  initial: { timeAId: string; timeBId: string } | null;
+  onConfirm: (c: { timeAId: string; timeBId: string }) => Promise<void>;
+}) {
+  const [timeAId, setTimeAId] = useState<string | null>(initial?.timeAId ?? null);
+  const [timeBId, setTimeBId] = useState<string | null>(initial?.timeBId ?? null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setTimeAId(initial?.timeAId ?? times[0]?.id ?? null);
+      setTimeBId(initial?.timeBId ?? times[1]?.id ?? null);
+    }
+  }, [open, initial, times]);
+
+  async function handleSave() {
+    if (!timeAId || !timeBId || timeAId === timeBId) return;
+    setSaving(true);
+    try {
+      await onConfirm({ timeAId, timeBId });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Confronto em campo</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted">Escolha os dois times que estão jogando agora.</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase text-muted">Time A</label>
+            <select
+              className="w-full rounded-md border border-border bg-surface px-2 py-2 text-sm"
+              value={timeAId ?? ''}
+              onChange={(e) => setTimeAId(e.target.value || null)}
+            >
+              <option value="">—</option>
+              {times.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase text-muted">Time B</label>
+            <select
+              className="w-full rounded-md border border-border bg-surface px-2 py-2 text-sm"
+              value={timeBId ?? ''}
+              onChange={(e) => setTimeBId(e.target.value || null)}
+            >
+              <option value="">—</option>
+              {times.map((t) => (
+                <option key={t.id} value={t.id} disabled={t.id === timeAId}>
+                  {t.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button
+            onClick={() => void handleSave()}
+            disabled={!timeAId || !timeBId || timeAId === timeBId || saving}
+          >
+            Confirmar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

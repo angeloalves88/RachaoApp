@@ -52,7 +52,7 @@ export function LiveMatchBar() {
       setPlacar({});
       return;
     }
-    const crono = loadCronoState(s.partidaId, s.tempoTotalMin);
+    const crono = loadCronoState(s.partidaId, s.tempoPartidaMin, s.numPartidas);
     const display = computeCronoDisplay(crono);
     setCronoText(display.texto);
     setCronoRodando(display.rodando);

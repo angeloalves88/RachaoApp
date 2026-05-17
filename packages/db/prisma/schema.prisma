@@ -344,7 +344,9 @@ model Partida {
   reservasPorTime Int      @default(0)
   /// Tempo de cada confronto (minutos)
   tempoPartida    Int      @default(15)
-  /// Tempo total do evento (minutos)
+  /// Quantidade de partidas/jogos no evento (cada uma com tempoPartida min)
+  numPartidas     Int      @default(6)
+  /// Tempo total do evento (minutos) = numPartidas * tempoPartida
   tempoTotal      Int      @default(90)
 
   /// por_partida | mensalidade
@@ -366,9 +368,11 @@ model Partida {
   /// (recorrente). Null para partidas avulsas. Usado para "cancelar a serie".
   serieId         String?
 
-  /// Estado server-side do cronometro do ao-vivo. Formato:
-  /// { status: 'parado'|'rodando'|'pausado', iniciadoEm?: ISO, segundosAcumulados: number, ultimaAcaoClientId?: string }
+  /// Estado server-side do cronometro do ao-vivo (status, jogoAtual, segundosAcumulados, ...)
   cronometroEstado Json?
+
+  /// Estado ao-vivo: jogoAtual, confronto { timeAId, timeBId }, etc.
+  aoVivoEstado Json?
 
   criadoEm        DateTime @default(now())
   atualizadoEm    DateTime @updatedAt

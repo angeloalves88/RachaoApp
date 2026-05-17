@@ -362,39 +362,85 @@ export const serieSemanalCreateSchema = z.object({
 });
 export type SerieSemanalCreateInput = z.infer<typeof serieSemanalCreateSchema>;
 
+export const CORES_TIME = ['orange', 'blue', 'green', 'yellow', 'red', 'purple'] as const;
+export type CorTime = (typeof CORES_TIME)[number];
+
 /**
  * Criacao de partida — payload completo do wizard (T13).
  * dataHora deve ser ISO; lista de espera e calculada server-side.
  */
-export const partidaCreateSchema = z.object({
-  grupoId: z.string().min(1),
-  dataHora: z.coerce
-    .date()
-    .refine((d) => d.getTime() > Date.now() - 60 * 60 * 1000, {
-      message: 'A data da partida não pode estar no passado',
-    }),
-  numTimes: z.number().int().min(2).max(4),
-  boleirosPorTime: z.number().int().min(3).max(11),
-  /** Reservas extra por time (alem dos titulares). Default 0 mantem compatibilidade. */
-  reservasPorTime: z.number().int().min(0).max(8).default(0),
-  tempoPartida: z.number().int().min(5).max(120),
-  tempoTotal: z.number().int().min(15).max(480),
-  localLivre: z.string().trim().max(200).optional().nullable(),
-  estadioId: z.string().min(1).optional().nullable(),
-  observacoes: z.string().trim().max(500).optional().nullable(),
-  tipoCobranca: z.enum(TIPOS_COBRANCA).default('por_partida'),
-  regras: regrasPartidaSchema.default({}),
-  boleirosIds: z.array(z.string().min(1)).default([]),
-  convidadosAvulsos: z.array(convidadoAvulsoCreateSchema).default([]),
-  vaquinha: vaquinhaCreateSchema.optional().nullable(),
-  serieSemanal: serieSemanalCreateSchema.optional().nullable(),
+export const timeMetaCreateSchema = z.object({
+  nome: z.string().trim().min(1).max(40),
+  cor: z.enum(CORES_TIME),
 });
+export type TimeMetaCreateInput = z.infer<typeof timeMetaCreateSchema>;
+
+const partidaCreateFields = z.object({
+    grupoId: z.string().min(1),
+    dataHora: z.coerce
+      .date()
+      .refine((d) => d.getTime() > Date.now() - 60 * 60 * 1000, {
+        message: 'A data da partida não pode estar no passado',
+      }),
+    numTimes: z.number().int().min(2).max(4),
+    /** 0 = formato só reservas (reservas ilimitadas por time). */
+    boleirosPorTime: z.number().int().min(0).max(11),
+    reservasPorTime: z.number().int().min(0).max(8).default(0),
+    numPartidas: z.number().int().min(1).max(24),
+    tempoPartida: z.number().int().min(5).max(120),
+    tempoTotal: z.number().int().min(5).max(720),
+    times: z.array(timeMetaCreateSchema).optional(),
+    localLivre: z.string().trim().max(200).optional().nullable(),
+    estadioId: z.string().min(1).optional().nullable(),
+    observacoes: z.string().trim().max(500).optional().nullable(),
+    tipoCobranca: z.enum(TIPOS_COBRANCA).default('por_partida'),
+    regras: regrasPartidaSchema.default({}),
+    boleirosIds: z.array(z.string().min(1)).default([]),
+    convidadosAvulsos: z.array(convidadoAvulsoCreateSchema).default([]),
+    vaquinha: vaquinhaCreateSchema.optional().nullable(),
+    serieSemanal: serieSemanalCreateSchema.optional().nullable(),
+});
+
+export const partidaCreateSchema = partidaCreateFields.superRefine((data, ctx) => {
+    const esperado = data.numPartidas * data.tempoPartida;
+    if (data.tempoTotal !== esperado) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['tempoTotal'],
+        message: `tempoTotal deve ser ${esperado} (${data.numPartidas} × ${data.tempoPartida} min)`,
+      });
+    }
+    if (data.times && data.times.length !== data.numTimes) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['times'],
+        message: `Informe exatamente ${data.numTimes} times`,
+      });
+    }
+    if (data.boleirosPorTime === 0 && (data.reservasPorTime ?? 0) > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['reservasPorTime'],
+        message: 'Com 0 titulares, reservas são ilimitadas — use reservasPorTime = 0',
+      });
+    }
+  });
 export type PartidaCreateInput = z.infer<typeof partidaCreateSchema>;
+
+/** Capacidade de convites. null = ilimitada (boleirosPorTime = 0). */
+export function capacidadePartida(p: {
+  numTimes: number;
+  boleirosPorTime: number;
+  reservasPorTime?: number;
+}): number | null {
+  if (p.boleirosPorTime === 0) return null;
+  return p.numTimes * (p.boleirosPorTime + (p.reservasPorTime ?? 0));
+}
 
 /**
  * Atualizacao parcial — usada para editar partida e mudar status (cancelar).
  */
-export const partidaUpdateSchema = partidaCreateSchema
+export const partidaUpdateSchema = partidaCreateFields
   .omit({
     grupoId: true,
     boleirosIds: true,
@@ -464,9 +510,6 @@ export type NotificacoesListQuery = z.infer<typeof notificacoesListQuerySchema>;
 // Bloco 5 — Escalação (T18)
 // -----------------------------------------------------------------------------
 
-export const CORES_TIME = ['orange', 'blue', 'green', 'yellow', 'red', 'purple'] as const;
-export type CorTime = (typeof CORES_TIME)[number];
-
 export const sorteioOptionsSchema = z.object({
   balancearPorPosicao: z.boolean().default(false),
   incluirConvidadosAvulsos: z.boolean().default(true),
@@ -474,14 +517,24 @@ export const sorteioOptionsSchema = z.object({
 });
 export type SorteioOptionsInput = z.infer<typeof sorteioOptionsSchema>;
 
-export const escalacaoTimeSchema = z.object({
-  nome: z.string().trim().min(1).max(20),
-  cor: z.enum(CORES_TIME),
-  conviteIds: z.array(z.string().min(1)).min(1, 'Cada time precisa de ao menos um boleiro'),
-  /** Reservas opcionais. Default [] mantem compatibilidade com clients antigos. */
-  conviteIdsReservas: z.array(z.string().min(1)).default([]),
-  capitaoConviteId: z.string().min(1).optional().nullable(),
-});
+export const escalacaoTimeSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    nome: z.string().trim().min(1).max(20),
+    cor: z.enum(CORES_TIME),
+    conviteIds: z.array(z.string().min(1)).default([]),
+    conviteIdsReservas: z.array(z.string().min(1)).default([]),
+    capitaoConviteId: z.string().min(1).optional().nullable(),
+  })
+  .superRefine((t, ctx) => {
+    const total = t.conviteIds.length + (t.conviteIdsReservas?.length ?? 0);
+    if (total < 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Cada time precisa de ao menos um boleiro (titular ou reserva)',
+      });
+    }
+  });
 export type EscalacaoTimeInput = z.infer<typeof escalacaoTimeSchema>;
 
 export const escalacaoSaveSchema = z.object({
