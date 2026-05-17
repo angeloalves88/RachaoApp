@@ -177,7 +177,7 @@ export function ConvidadoAvulsoDialog({ partidaId, disabled, onAdded, trigger }:
           </Field>
           {lookupLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted">
-              <Spinner size="sm" />
+              <Spinner size={14} />
               Buscando…
             </div>
           ) : null}
