@@ -159,6 +159,7 @@ function FichaStats({ stats }: { stats: BoleiroFicha['stats'] }) {
     { icon: '🥅', label: 'Gols', value: stats.gols },
     { icon: '🟨', label: 'Amarelos', value: stats.cartoesAmarelos },
     { icon: '🟥', label: 'Vermelhos', value: stats.cartoesVermelhos },
+    ...(stats.cartoesAzuis ? [{ icon: '🟦', label: 'Azuis', value: stats.cartoesAzuis }] : []),
   ];
   return (
     <ul className="grid grid-cols-2 gap-2">

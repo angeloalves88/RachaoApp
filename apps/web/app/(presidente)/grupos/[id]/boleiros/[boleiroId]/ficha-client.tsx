@@ -101,11 +101,17 @@ export function FichaBoleiroClient({ grupoId, initial }: Props) {
           <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
         </TabsList>
         <TabsContent value="estatisticas">
-          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <p className="mb-3 text-xs text-muted">
+            Partidas ao vivo e encerradas do grupo.
+          </p>
+          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             <StatTile icon="⚽" label="Partidas" value={data.stats.partidasJogadas} />
             <StatTile icon="🥅" label="Gols" value={data.stats.gols} />
             <StatTile icon="🟨" label="Amarelos" value={data.stats.cartoesAmarelos} />
             <StatTile icon="🟥" label="Vermelhos" value={data.stats.cartoesVermelhos} />
+            {(data.stats.cartoesAzuis ?? 0) > 0 ? (
+              <StatTile icon="🟦" label="Azuis" value={data.stats.cartoesAzuis ?? 0} />
+            ) : null}
           </ul>
         </TabsContent>
         <TabsContent value="financeiro">

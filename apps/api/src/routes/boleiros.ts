@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { boleiroCreateSchema, boleiroUpdateSchema } from '@rachao/shared/zod';
 import { getGrupoAcesso } from '../lib/grupos.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
+import { agregarEstatisticasBoleiro } from '../lib/estatisticas-boleiro.js';
 import { sincronizarBoleiroEmPartidasAgendadas } from '../lib/presencas.js';
 import { sincronizarPagamentosPartida } from '../lib/vaquinha.js';
 
@@ -251,20 +252,17 @@ const boleirosRoutes: FastifyPluginAsync = async (fastify) => {
       });
       if (!boleiro) return notFound(reply);
 
-      // Stats placeholders (Fase 3+: agregar de Evento/ConvitePartida/Pagamento).
-      const [pagamentosAbertos] = await fastify.prisma.$transaction([
+      const [pagamentosAbertos, stats] = await Promise.all([
         fastify.prisma.pagamento.count({
           where: { boleiroGrupoId: boleiro.id, status: { in: ['pendente', 'inadimplente'] } },
         }),
+        agregarEstatisticasBoleiro(fastify.prisma, params.data.id, boleiro.id),
       ]);
 
       return {
         boleiro,
         stats: {
-          partidasJogadas: 0,
-          gols: 0,
-          cartoesAmarelos: 0,
-          cartoesVermelhos: 0,
+          ...stats,
           pagamentosAbertos,
         },
       };

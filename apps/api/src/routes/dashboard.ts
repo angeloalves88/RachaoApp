@@ -1,4 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { capacidadePartida } from '@rachao/shared/zod';
+import { agregarDashboardInsights } from '../lib/dashboard-insights.js';
 
 /**
  * GET /api/dashboard
@@ -27,6 +29,7 @@ const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
         grupos: [],
         ultimasPartidas: [],
         alertas: { vaquinhasAbertas: 0, bloqueadosVermelho: 0 },
+        insights: await agregarDashboardInsights(fastify.prisma, []),
       };
     }
 
@@ -97,8 +100,15 @@ const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
       grupo: p.grupo,
       totalConvites: p._count.convites,
       confirmados: p.convites.length,
-      vagasTotais: p.numTimes * (p.boleirosPorTime + (p.reservasPorTime ?? 0)),
+      vagasTotais:
+        capacidadePartida({
+          numTimes: p.numTimes,
+          boleirosPorTime: p.boleirosPorTime,
+          reservasPorTime: p.reservasPorTime,
+        }) ?? 9999,
     }));
+
+    const insights = await agregarDashboardInsights(fastify.prisma, grupoIds);
 
     return {
       proximasPartidas,
@@ -122,6 +132,7 @@ const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
         vaquinhasAbertas,
         bloqueadosVermelho,
       },
+      insights,
     };
   });
 };

@@ -72,6 +72,7 @@ export interface BoleiroFicha {
     gols: number;
     cartoesAmarelos: number;
     cartoesVermelhos: number;
+    cartoesAzuis?: number;
     pagamentosAbertos: number;
   };
 }
@@ -256,6 +257,25 @@ export interface PartidaDetalhe {
   atualizadoEm: string;
 }
 
+export interface DashboardRankingJogador {
+  boleiroId: string;
+  nome: string;
+  apelido: string | null;
+  grupoNome: string;
+  valor: number;
+}
+
+export interface DashboardInsights {
+  partidasPrevistas: number;
+  partidasEncerradas: number;
+  mediaGolsPorPartida: number;
+  topArtilheiros: DashboardRankingJogador[];
+  topCartoes: Array<DashboardRankingJogador & { amarelos: number; vermelhos: number }>;
+  timeMaisVenceu: { nome: string; cor: string; vitorias: number } | null;
+  artilheiroDestaque: DashboardRankingJogador | null;
+  maisPresente: DashboardRankingJogador | null;
+}
+
 export interface DashboardSummary {
   proximasPartidas: Array<{
     id: string;
@@ -288,4 +308,5 @@ export interface DashboardSummary {
     vaquinhasAbertas: number;
     bloqueadosVermelho: number;
   };
+  insights: DashboardInsights;
 }
