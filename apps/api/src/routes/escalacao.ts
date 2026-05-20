@@ -6,6 +6,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
   escalacaoSaveSchema,
+  limiteReservasPorTime,
   sorteioOptionsSchema,
 } from '@rachao/shared/zod';
 import { getGrupoAcesso } from '../lib/grupos.js';
@@ -471,11 +472,12 @@ const escalacaoRoutes: FastifyPluginAsync = async (fastify) => {
             `Time "${t.nome}" excede o limite de ${partida.boleirosPorTime} titulares`,
           );
         }
-        if (partida.boleirosPorTime > 0 && reservasPorTime > 0 && resIds.length > reservasPorTime) {
+        const limiteRes = limiteReservasPorTime(partida.boleirosPorTime, reservasPorTime);
+        if (limiteRes != null && resIds.length > limiteRes) {
           return badRequest(
             reply,
             null,
-            `Time "${t.nome}" excede o limite de ${reservasPorTime} reservas`,
+            `Time "${t.nome}" excede o limite de ${limiteRes} reservas`,
           );
         }
       }

@@ -31,6 +31,11 @@ function parseDadosExtras(raw: unknown): DadosExtrasObj {
   return {};
 }
 
+function jogoDoEvento(dadosExtras: unknown): number {
+  const j = parseDadosExtras(dadosExtras).jogo;
+  return typeof j === 'number' && Number.isInteger(j) && j >= 1 ? j : 1;
+}
+
 const eventosRoutes: FastifyPluginAsync = async (fastify) => {
   /**
    * GET /api/partidas/:id/eventos
@@ -59,6 +64,16 @@ const eventosRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
 
+      const boleiroIds = [...new Set(eventos.map((e) => e.boleiroId).filter(Boolean) as string[])];
+      const boleiros =
+        boleiroIds.length > 0
+          ? await fastify.prisma.boleiroGrupo.findMany({
+              where: { id: { in: boleiroIds } },
+              select: { id: true, nome: true, apelido: true },
+            })
+          : [];
+      const boleiroMap = new Map(boleiros.map((b) => [b.id, b.apelido ?? b.nome]));
+
       return {
         eventos: eventos.map((e) => ({
           id: e.id,
@@ -68,10 +83,50 @@ const eventosRoutes: FastifyPluginAsync = async (fastify) => {
           timeNome: e.time?.nome ?? null,
           timeCor: e.time?.cor ?? null,
           boleiroId: e.boleiroId,
+          boleiroNome: e.boleiroId ? (boleiroMap.get(e.boleiroId) ?? null) : null,
           dadosExtras: e.dadosExtras,
           criadoEm: e.criadoEm,
         })),
       };
+    },
+  );
+
+  /**
+   * DELETE /api/partidas/:id/eventos?jogo=N
+   * Remove eventos do sub-jogo N apos finalizar (placar ja em aoVivoEstado.resultados).
+   */
+  fastify.delete(
+    '/api/partidas/:id/eventos',
+    { preHandler: fastify.requireAuth },
+    async (request, reply) => {
+      const auth = request.user!;
+      const params = partidaParam.safeParse(request.params);
+      if (!params.success) return badRequest(reply, params.error.flatten().fieldErrors);
+
+      const jogoQs = z.object({ jogo: z.coerce.number().int().min(1).max(24) }).safeParse(request.query);
+      if (!jogoQs.success) return badRequest(reply, jogoQs.error.flatten().fieldErrors);
+
+      const partida = await fastify.prisma.partida.findUnique({
+        where: { id: params.data.id },
+        select: { grupoId: true, status: true },
+      });
+      if (!partida) return notFound(reply);
+      const acesso = await getGrupoAcesso(fastify.prisma, partida.grupoId, auth.sub);
+      if (!acesso) return forbidden(reply);
+      if (partida.status !== 'em_andamento') {
+        return badRequest(reply, null, 'Partida nao esta em andamento');
+      }
+
+      const jogo = jogoQs.data.jogo;
+      const todos = await fastify.prisma.evento.findMany({
+        where: { partidaId: params.data.id },
+        select: { id: true, dadosExtras: true },
+      });
+      const ids = todos.filter((e) => jogoDoEvento(e.dadosExtras) === jogo).map((e) => e.id);
+      if (ids.length > 0) {
+        await fastify.prisma.evento.deleteMany({ where: { id: { in: ids } } });
+      }
+      return { ok: true, removidos: ids.length };
     },
   );
 

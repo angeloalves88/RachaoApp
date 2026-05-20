@@ -4,6 +4,7 @@
  */
 
 export interface CronoState {
+  /** Sempre 'progressivo' — campo mantido para compatibilidade com dados antigos. */
   modo: 'regressivo' | 'progressivo';
   /** Duração do segmento atual (tempoPartida). */
   duracaoMs: number;
@@ -24,7 +25,7 @@ export function createCronoState(
   jogoAtual = 1,
 ): CronoState {
   return {
-    modo: 'regressivo',
+    modo: 'progressivo',
     duracaoMs: tempoPartidaMin * 60 * 1000,
     rodando: false,
     acumuladoMs: 0,
@@ -47,7 +48,7 @@ export function loadCronoState(
     const parsed = JSON.parse(raw) as Partial<CronoState>;
     const segmentMs = tempoPartidaMin * 60 * 1000;
     return {
-      modo: parsed.modo === 'progressivo' ? 'progressivo' : 'regressivo',
+      modo: 'progressivo',
       duracaoMs: segmentMs,
       rodando: !!parsed.rodando,
       acumuladoMs: typeof parsed.acumuladoMs === 'number' ? parsed.acumuladoMs : 0,
@@ -101,6 +102,11 @@ export function segmentoEsgotado(state: CronoState): boolean {
   return state.modo === 'regressivo' && displayMs(state) < 0;
 }
 
+/** Tempo regulamentar esgotado (cronômetro progressivo). */
+export function tempoExtraProgressivo(state: CronoState): boolean {
+  return elapsedMs(state) >= state.duracaoMs;
+}
+
 export interface CronoDisplay {
   texto: string;
   rodando: boolean;
@@ -118,7 +124,8 @@ export function computeCronoDisplay(state: CronoState): CronoDisplay {
     rodando: state.rodando,
     modo: state.modo,
     pausado: !state.rodando && state.acumuladoMs > 0,
-    overtime: state.modo === 'regressivo' && ms < 0,
+    overtime:
+      state.modo === 'regressivo' ? ms < 0 : elapsedMs(state) >= state.duracaoMs,
     jogoAtual: state.jogoAtual,
     numPartidas: state.numPartidas,
   };

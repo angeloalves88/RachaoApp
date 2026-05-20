@@ -125,6 +125,16 @@ export async function removePending(partidaId: string, clientId: string): Promis
   if (next.length !== items.length) await writePending(partidaId, next);
 }
 
+/** Descarta eventos pendentes de um sub-jogo (apos finalizar o jogo). */
+export async function removePendingForJogo(partidaId: string, jogo: number): Promise<void> {
+  const items = await readPending(partidaId);
+  const next = items.filter((i) => {
+    const j = (i.body.dadosExtras as { jogo?: number } | null)?.jogo ?? 1;
+    return j !== jogo;
+  });
+  if (next.length !== items.length) await writePending(partidaId, next);
+}
+
 export async function discardFailed(partidaId: string, clientId: string): Promise<void> {
   await removePending(partidaId, clientId);
 }
@@ -274,11 +284,10 @@ export async function flushPending(
  * Hook simples para acompanhar a conectividade do navegador.
  */
 export function useOnline(): boolean {
-  const [online, setOnline] = useState<boolean>(() => {
-    if (typeof navigator === 'undefined') return true;
-    return navigator.onLine;
-  });
+  // Sempre `true` no SSR e na primeira pintura do cliente (evita hydration mismatch).
+  const [online, setOnline] = useState(true);
   useEffect(() => {
+    setOnline(navigator.onLine);
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener('online', on);

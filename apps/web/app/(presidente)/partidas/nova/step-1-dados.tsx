@@ -28,10 +28,12 @@ const COR_LABELS: Record<CorTime, string> = {
 
 export function Step1Dados() {
   const state = useWizardStore();
+  const semTitulares = state.boleirosPorTime === 0;
+  const reservasIlimitadas = semTitulares || state.reservasPorTime === 0;
   const totalTitulares = state.numTimes * state.boleirosPorTime;
-  const reservasIlimitadas = state.boleirosPorTime === 0;
-  const totalReservas = reservasIlimitadas ? 0 : state.numTimes * state.reservasPorTime;
-  const totalVagas = reservasIlimitadas ? null : totalTitulares + totalReservas;
+  const totalReservas = reservasIlimitadas ? null : state.numTimes * state.reservasPorTime;
+  const totalVagas =
+    semTitulares || reservasIlimitadas ? null : totalTitulares + (totalReservas ?? 0);
   const hint =
     state.numTimes >= 3
       ? 'Com 3+ times, o que perder sai e o próximo entra.'
@@ -142,11 +144,13 @@ export function Step1Dados() {
       <Field
         label="Boleiros por time (titulares)"
         hint={
-          reservasIlimitadas
+          semTitulares
             ? '0 titulares = todos entram como reserva (ilimitado por time).'
-            : totalVagas != null
-              ? `Total de vagas: ${totalVagas} (${totalTitulares} titulares + ${totalReservas} reservas)`
-              : undefined
+            : reservasIlimitadas
+              ? `${totalTitulares} titulares no evento · reservas ilimitadas por time`
+              : totalVagas != null
+                ? `Total de vagas: ${totalVagas} (${totalTitulares} titulares + ${totalReservas} reservas)`
+                : undefined
         }
       >
         <NumberStepper
@@ -159,8 +163,11 @@ export function Step1Dados() {
         />
       </Field>
 
-      {!reservasIlimitadas ? (
-        <Field label="Reservas por time" hint="Boleiros extras escalados como reservas. Use 0 para sem reservas.">
+      {!semTitulares ? (
+        <Field
+          label="Reservas por time"
+          hint="Boleiros extras escalados como reservas. Use 0 para reservas ilimitadas por time."
+        >
           <NumberStepper
             value={state.reservasPorTime}
             min={0}

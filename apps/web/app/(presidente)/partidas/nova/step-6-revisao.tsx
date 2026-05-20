@@ -31,8 +31,12 @@ export function Step6Revisao({ nomeGrupo, totalBoleirosAvailable }: Step6Props) 
     : 'Data inválida';
 
   const totalSelecionados = state.boleirosIds.length + state.convidados.length;
-  const vagas = state.numTimes * (state.boleirosPorTime + state.reservasPorTime);
-  const naEspera = Math.max(0, totalSelecionados - vagas);
+  const reservasIlimitadas = state.boleirosPorTime === 0 || state.reservasPorTime === 0;
+  const vagas =
+    state.boleirosPorTime === 0 || reservasIlimitadas
+      ? null
+      : state.numTimes * (state.boleirosPorTime + state.reservasPorTime);
+  const naEspera = vagas == null ? 0 : Math.max(0, totalSelecionados - vagas);
 
   const regrasAtivas = (Object.keys(state.regras) as Array<keyof typeof state.regras>)
     .filter((k) => state.regras[k].ativo)
@@ -49,7 +53,12 @@ export function Step6Revisao({ nomeGrupo, totalBoleirosAvailable }: Step6Props) 
         <p className="text-sm">{dataFmt}</p>
         <p className="text-xs text-muted">
           {state.numTimes} times · {state.boleirosPorTime} boleiros por time
-          {state.reservasPorTime > 0 ? ` + ${state.reservasPorTime} reservas` : ''} ·{' '}
+          {state.boleirosPorTime === 0
+            ? ' (só reservas, ilimitadas)'
+            : state.reservasPorTime === 0
+              ? ' + reservas ilimitadas'
+              : ` + ${state.reservasPorTime} reservas`}{' '}
+          ·{' '}
           {state.numPartidas} partidas × {state.tempoPartida} min ({state.tempoTotal} min total)
         </p>
         <p className="mt-1 text-xs font-medium text-foreground">

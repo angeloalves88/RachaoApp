@@ -54,7 +54,9 @@ export function TimeColumn({
   boleirosPorTime,
   showRemove = true,
 }: Props) {
-  const hasReservasZone = reservasPorTime > 0 || reservasMembers.length > 0;
+  const reservasIlimitadas = boleirosPorTime === 0 || reservasPorTime === 0;
+  const hasReservasZone =
+    reservasIlimitadas || reservasPorTime > 0 || reservasMembers.length > 0;
   return (
     <div
       className="flex min-h-[200px] flex-col gap-2 rounded-xl border border-border bg-surface-2 p-3"
@@ -99,8 +101,9 @@ export function TimeColumn({
         </span>
         {hasReservasZone ? (
           <span>
-            Reservas: {reservasMembers.length}/{reservasPorTime}
-            {reservasMembers.length > reservasPorTime ? (
+            Reservas: {reservasMembers.length}
+            {!reservasIlimitadas ? `/${reservasPorTime}` : ''}
+            {!reservasIlimitadas && reservasMembers.length > reservasPorTime ? (
               <span className="ml-1 font-medium text-destructive"> — acima do limite</span>
             ) : null}
           </span>

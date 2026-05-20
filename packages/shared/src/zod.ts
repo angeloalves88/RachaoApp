@@ -427,13 +427,32 @@ export const partidaCreateSchema = partidaCreateFields.superRefine((data, ctx) =
   });
 export type PartidaCreateInput = z.infer<typeof partidaCreateSchema>;
 
-/** Capacidade de convites. null = ilimitada (boleirosPorTime = 0). */
+/** Sem titulares: só reservas (ilimitadas). Com titulares e reservasPorTime = 0: reservas ilimitadas por time. */
+export function reservasIlimitadasPorTime(
+  boleirosPorTime: number,
+  reservasPorTime?: number,
+): boolean {
+  if (boleirosPorTime === 0) return true;
+  return (reservasPorTime ?? 0) === 0;
+}
+
+/** Limite de reservas por time, ou null se ilimitado. */
+export function limiteReservasPorTime(
+  boleirosPorTime: number,
+  reservasPorTime?: number,
+): number | null {
+  if (reservasIlimitadasPorTime(boleirosPorTime, reservasPorTime)) return null;
+  return reservasPorTime ?? 0;
+}
+
+/** Capacidade de convites. null = ilimitada (sem titulares ou reservas ilimitadas). */
 export function capacidadePartida(p: {
   numTimes: number;
   boleirosPorTime: number;
   reservasPorTime?: number;
 }): number | null {
   if (p.boleirosPorTime === 0) return null;
+  if (reservasIlimitadasPorTime(p.boleirosPorTime, p.reservasPorTime)) return null;
   return p.numTimes * (p.boleirosPorTime + (p.reservasPorTime ?? 0));
 }
 

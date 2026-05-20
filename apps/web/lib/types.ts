@@ -211,6 +211,14 @@ export interface PartidaDetalhe {
   aoVivoEstado?: {
     jogoAtual?: number;
     confronto?: { timeAId: string; timeBId: string } | null;
+    jogoFinalizado?: boolean;
+    resultados?: Array<{
+      jogo: number;
+      timeAId: string;
+      timeBId: string;
+      golsA: number;
+      golsB: number;
+    }>;
   } | null;
   tipoCobranca: 'por_partida' | 'mensalidade';
   localLivre: string | null;

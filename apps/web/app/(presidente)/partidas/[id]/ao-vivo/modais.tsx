@@ -175,6 +175,7 @@ interface GolValue {
 
 interface GolModalProps extends BaseModalProps {
   defaultTimeId?: string | null;
+  defaultBoleiroId?: string | null;
   permitirOlimpico: boolean;
   onConfirm: (v: GolValue) => Promise<void> | void;
 }
@@ -185,11 +186,12 @@ export function GolModal({
   times,
   minutoAtual,
   defaultTimeId,
+  defaultBoleiroId,
   permitirOlimpico,
   onConfirm,
 }: GolModalProps) {
   const [timeId, setTimeId] = useState<string | null>(defaultTimeId ?? null);
-  const [boleiroId, setBoleiroId] = useState<string | null>(null);
+  const [boleiroId, setBoleiroId] = useState<string | null>(defaultBoleiroId ?? null);
   const [minuto, setMinuto] = useState(minutoAtual);
   const [olimpico, setOlimpico] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -197,11 +199,11 @@ export function GolModal({
   useEffect(() => {
     if (open) {
       setTimeId(defaultTimeId ?? null);
-      setBoleiroId(null);
+      setBoleiroId(defaultBoleiroId ?? null);
       setMinuto(minutoAtual);
       setOlimpico(false);
     }
-  }, [open, defaultTimeId, minutoAtual]);
+  }, [open, defaultTimeId, defaultBoleiroId, minutoAtual]);
 
   const time = useMemo(() => times.find((t) => t.id === timeId), [times, timeId]);
 
@@ -296,6 +298,9 @@ interface CartaoValue {
 }
 
 interface CartaoModalProps extends BaseModalProps {
+  defaultTimeId?: string | null;
+  defaultBoleiroId?: string | null;
+  defaultTipo?: TipoCartao;
   cartaoAzulAtivo: boolean;
   duracaoAzulPadrao: number;
   onConfirm: (v: CartaoValue) => Promise<void> | void;
@@ -306,26 +311,29 @@ export function CartaoModal({
   onOpenChange,
   times,
   minutoAtual,
+  defaultTimeId,
+  defaultBoleiroId,
+  defaultTipo,
   cartaoAzulAtivo,
   duracaoAzulPadrao,
   onConfirm,
 }: CartaoModalProps) {
-  const [tipo, setTipo] = useState<TipoCartao>('amarelo');
-  const [timeId, setTimeId] = useState<string | null>(null);
-  const [boleiroId, setBoleiroId] = useState<string | null>(null);
+  const [tipo, setTipo] = useState<TipoCartao>(defaultTipo ?? 'amarelo');
+  const [timeId, setTimeId] = useState<string | null>(defaultTimeId ?? null);
+  const [boleiroId, setBoleiroId] = useState<string | null>(defaultBoleiroId ?? null);
   const [minuto, setMinuto] = useState(minutoAtual);
   const [duracaoAzul, setDuracaoAzul] = useState(duracaoAzulPadrao);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setTipo('amarelo');
-      setTimeId(null);
-      setBoleiroId(null);
+      setTipo(defaultTipo ?? 'amarelo');
+      setTimeId(defaultTimeId ?? null);
+      setBoleiroId(defaultBoleiroId ?? null);
       setMinuto(minutoAtual);
       setDuracaoAzul(duracaoAzulPadrao);
     }
-  }, [open, minutoAtual, duracaoAzulPadrao]);
+  }, [open, defaultTimeId, defaultBoleiroId, defaultTipo, minutoAtual, duracaoAzulPadrao]);
 
   const time = useMemo(() => times.find((t) => t.id === timeId), [times, timeId]);
 
@@ -448,6 +456,8 @@ interface SubValue {
 }
 
 interface SubModalProps extends BaseModalProps {
+  defaultTimeId?: string | null;
+  defaultBoleiroId?: string | null;
   onConfirm: (v: SubValue) => Promise<void> | void;
 }
 
@@ -456,22 +466,24 @@ export function SubstituicaoModal({
   onOpenChange,
   times,
   minutoAtual,
+  defaultTimeId,
+  defaultBoleiroId,
   onConfirm,
 }: SubModalProps) {
-  const [timeId, setTimeId] = useState<string | null>(null);
-  const [sai, setSai] = useState<string | null>(null);
+  const [timeId, setTimeId] = useState<string | null>(defaultTimeId ?? null);
+  const [sai, setSai] = useState<string | null>(defaultBoleiroId ?? null);
   const [entra, setEntra] = useState<string | null>(null);
   const [minuto, setMinuto] = useState(minutoAtual);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setTimeId(null);
-      setSai(null);
+      setTimeId(defaultTimeId ?? null);
+      setSai(defaultBoleiroId ?? null);
       setEntra(null);
       setMinuto(minutoAtual);
     }
-  }, [open, minutoAtual]);
+  }, [open, defaultTimeId, defaultBoleiroId, minutoAtual]);
 
   const time = useMemo(() => times.find((t) => t.id === timeId), [times, timeId]);
 

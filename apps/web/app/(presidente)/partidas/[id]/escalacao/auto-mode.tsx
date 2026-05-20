@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import type { CorTime } from '@rachao/shared/zod';
+import { limiteReservasPorTime, reservasIlimitadasPorTime } from '@rachao/shared/zod';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -55,6 +56,10 @@ export function AutoMode({
   presencaPorBoleiro = {},
   onSaved,
 }: Props) {
+  const reservasIlimitadas = reservasIlimitadasPorTime(boleirosPorTime, reservasPorTime);
+  const limiteReservas =
+    limiteReservasPorTime(boleirosPorTime, reservasPorTime) ?? Number.MAX_SAFE_INTEGER;
+
   const [balancearPorPosicao, setBalancear] = useState(false);
   const [incluirConvidadosAvulsos, setIncluirAvulsos] = useState(true);
   const [draft, setDraft] = useState<AutoDraftTime[] | null>(() =>
@@ -115,8 +120,8 @@ export function AutoMode({
         toast.error(`O time "${t.nome}" passou do limite de ${boleirosPorTime} titulares.`);
         return;
       }
-      if (t.conviteIdsReservas.length > reservasPorTime) {
-        toast.error(`O time "${t.nome}" passou do limite de ${reservasPorTime} reservas.`);
+      if (!reservasIlimitadas && t.conviteIdsReservas.length > limiteReservas) {
+        toast.error(`O time "${t.nome}" passou do limite de ${limiteReservas} reservas.`);
         return;
       }
       if (t.conviteIds.length < 1) {
@@ -170,8 +175,8 @@ export function AutoMode({
       return d.map((t, i) => {
         if (i !== teamIdx) return t;
         if (paraReserva) {
-          if (t.conviteIdsReservas.length >= reservasPorTime) {
-            toast.error(`Limite de ${reservasPorTime} reservas atingido.`);
+          if (!reservasIlimitadas && t.conviteIdsReservas.length >= limiteReservas) {
+            toast.error(`Limite de ${limiteReservas} reservas atingido.`);
             return t;
           }
           return {

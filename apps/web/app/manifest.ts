@@ -1,18 +1,36 @@
 import type { MetadataRoute } from 'next';
 
 /**
- * Gera `/manifest.json` (App Router). Evita 404 e avisos de PWA no DevTools.
+ * Gera `/manifest.webmanifest` (App Router).
+ * Conteúdo alinhado ao PWA em `public/sw.js`.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: 'RachãoApp',
-    short_name: 'RachãoApp',
-    description: 'Gestão de peladas de futebol amador',
-    start_url: '/',
-    display: 'standalone',
-    background_color: '#0f1b2d',
-    theme_color: '#0f1b2d',
+    short_name: 'Rachão',
+    description:
+      'Organize peladas, gerencie boleiros, escale times e controle a vaquinha.',
     lang: 'pt-BR',
+    start_url: '/dashboard',
+    scope: '/',
+    display: 'standalone',
     orientation: 'portrait',
+    background_color: '#0f1b2d',
+    theme_color: '#e8530a',
+    icons: [
+      {
+        src: '/icons/icon.svg',
+        sizes: 'any',
+        type: 'image/svg+xml',
+        purpose: 'any',
+      },
+      {
+        src: '/icons/icon-maskable.svg',
+        sizes: 'any',
+        type: 'image/svg+xml',
+        purpose: 'maskable',
+      },
+    ],
+    categories: ['sports', 'lifestyle', 'productivity'],
   };
 }

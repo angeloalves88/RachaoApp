@@ -133,7 +133,8 @@ export function sortearTimes(
   }
 
   const capTitulares = numTimes * boleirosPorTime;
-  const capReservas = numTimes * Math.max(0, reservasPorTime);
+  const reservasIlimitadas = reservasPorTime === 0;
+  const capReservas = reservasIlimitadas ? pool.length : numTimes * Math.max(0, reservasPorTime);
 
   for (; idx < pool.length && idx < capTitulares; idx++) {
     const teamIdx = idx % numTimes;

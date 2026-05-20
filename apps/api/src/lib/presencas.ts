@@ -6,6 +6,7 @@
  * da lista de espera (menor `posicaoEspera`) e promovido para `pendente`.
  */
 import type { Prisma, PrismaClient } from '@rachao/db';
+import { capacidadePartida } from '@rachao/shared/zod';
 
 type TxClient = Omit<
   PrismaClient,
@@ -95,8 +96,12 @@ export async function promoverListaEspera(
     return { promovidos: [] };
   }
 
-  const capacidade =
-    partida.numTimes * (partida.boleirosPorTime + (partida.reservasPorTime ?? 0));
+  const capacidade = capacidadePartida({
+    numTimes: partida.numTimes,
+    boleirosPorTime: partida.boleirosPorTime,
+    reservasPorTime: partida.reservasPorTime,
+  });
+  if (capacidade === null) return { promovidos: [] };
 
   const ocupados = await tx.convitePartida.count({
     where: { partidaId, status: { in: ['pendente', 'confirmado'] } },
@@ -162,11 +167,15 @@ export async function sincronizarBoleiroEmPartidasAgendadas(
     });
     if (ja) continue;
 
-    const capacidade = p.numTimes * (p.boleirosPorTime + (p.reservasPorTime ?? 0));
+    const capacidade = capacidadePartida({
+      numTimes: p.numTimes,
+      boleirosPorTime: p.boleirosPorTime,
+      reservasPorTime: p.reservasPorTime,
+    });
     const ocupados = await tx.convitePartida.count({
       where: { partidaId: p.id, status: { in: ['pendente', 'confirmado'] } },
     });
-    const dentro = ocupados < capacidade;
+    const dentro = capacidade === null || ocupados < capacidade;
     const ultimaEspera = dentro
       ? null
       : await tx.convitePartida.aggregate({

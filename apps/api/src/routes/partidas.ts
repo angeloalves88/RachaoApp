@@ -729,7 +729,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
           convidadoAvulsoId: convidado.id,
           tipo: 'convidado_avulso',
           tokenExpiresAt: new Date(Date.now() + TOKEN_TTL_MS),
-          status: dentroDaCapacidade ? 'pendente' : 'lista_espera',
+          status: dentroDaCapacidade ? 'confirmado' : 'lista_espera',
           posicaoEspera: dentroDaCapacidade ? null : (ultimasEspera._max.posicaoEspera ?? 0) + 1,
         },
       });
@@ -1098,6 +1098,38 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
       })
       .optional()
       .nullable(),
+    jogoFinalizado: z.boolean().optional(),
+    resultados: z
+      .array(
+        z.object({
+          jogo: z.number().int().min(1),
+          timeAId: z.string().min(1),
+          timeBId: z.string().min(1),
+          golsA: z.number().int().min(0),
+          golsB: z.number().int().min(0),
+        }),
+      )
+      .optional(),
+    estatisticasTimes: z
+      .record(
+        z.string(),
+        z.object({
+          amarelos: z.number().int().min(0),
+          vermelhos: z.number().int().min(0),
+          azuis: z.number().int().min(0),
+        }),
+      )
+      .optional(),
+    artilharia: z
+      .array(
+        z.object({
+          boleiroId: z.string().min(1),
+          boleiroNome: z.string(),
+          timeId: z.string().min(1),
+          gols: z.number().int().min(0),
+        }),
+      )
+      .optional(),
   });
 
   fastify.get(
@@ -1150,6 +1182,14 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         ...prev,
         ...(body.data.jogoAtual != null ? { jogoAtual: body.data.jogoAtual } : {}),
         ...(body.data.confronto !== undefined ? { confronto: body.data.confronto } : {}),
+        ...(body.data.jogoFinalizado !== undefined
+          ? { jogoFinalizado: body.data.jogoFinalizado }
+          : {}),
+        ...(body.data.resultados !== undefined ? { resultados: body.data.resultados } : {}),
+        ...(body.data.estatisticasTimes !== undefined
+          ? { estatisticasTimes: body.data.estatisticasTimes }
+          : {}),
+        ...(body.data.artilharia !== undefined ? { artilharia: body.data.artilharia } : {}),
       };
       await fastify.prisma.partida.update({
         where: { id: params.data.id },

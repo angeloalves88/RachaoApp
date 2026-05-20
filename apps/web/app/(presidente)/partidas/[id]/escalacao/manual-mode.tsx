@@ -21,7 +21,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Crown, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CorTime } from '@rachao/shared/zod';
-import { CORES_TIME } from '@rachao/shared/zod';
+import { CORES_TIME, limiteReservasPorTime, reservasIlimitadasPorTime } from '@rachao/shared/zod';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -247,6 +247,10 @@ export function ManualMode({
   presencaPorBoleiro = {},
   onSaved,
 }: Props) {
+  const reservasIlimitadas = reservasIlimitadasPorTime(boleirosPorTime, reservasPorTime);
+  const limiteReservas =
+    limiteReservasPorTime(boleirosPorTime, reservasPorTime) ?? Number.MAX_SAFE_INTEGER;
+
   const blockedSet = useMemo(
     () => new Set(elegiveis.filter((e) => e.bloqueado).map((e) => e.conviteId)),
     [elegiveis],
@@ -376,7 +380,7 @@ export function ManualMode({
         ? boleirosPorTime
         : boleirosPorTime === 0
           ? Number.MAX_SAFE_INTEGER
-          : reservasPorTime;
+          : limiteReservas;
       if (dest.length >= limit && !dest.includes(aId)) {
         toast.error(isTeamContainer(overCont) ? 'Time completo' : 'Reservas completas');
         return;
@@ -416,7 +420,10 @@ export function ManualMode({
     return n;
   }, [columns, numTimes]);
 
-  const capacity = numTimes * (boleirosPorTime + reservasPorTime);
+  const capacity =
+    boleirosPorTime === 0 || reservasIlimitadas
+      ? null
+      : numTimes * (boleirosPorTime + reservasPorTime);
 
   const poolFree = (columns[POOL_ID] ?? []).filter((id) => !blockedSet.has(id));
   const poolBlocked = (columns[POOL_ID] ?? []).filter((id) => blockedSet.has(id));
@@ -443,7 +450,7 @@ export function ManualMode({
         const limit = asReserva
           ? boleirosPorTime === 0
             ? Number.MAX_SAFE_INTEGER
-            : reservasPorTime
+            : limiteReservas
           : boleirosPorTime;
         if (dest.length >= limit && !dest.includes(conviteId)) {
           toast.error(asReserva ? 'Reservas completas neste time' : 'Time completo');
@@ -455,7 +462,7 @@ export function ManualMode({
         return { columns: next, timeMeta: normalizeMeta(next, s.timeMeta, numTimes) };
       });
     },
-    [boleirosPorTime, reservasPorTime, numTimes],
+    [boleirosPorTime, limiteReservas, numTimes],
   );
 
   async function confirmar() {
@@ -488,8 +495,11 @@ export function ManualMode({
         toast.error(`Limite de ${boleirosPorTime} titulares por time.`);
         return;
       }
-      if (reservasPorTime > 0 && t.conviteIdsReservas.length > reservasPorTime) {
-        toast.error(`Limite de ${reservasPorTime} reservas por time.`);
+      if (
+        !reservasIlimitadas &&
+        t.conviteIdsReservas.length > limiteReservas
+      ) {
+        toast.error(`Limite de ${limiteReservas} reservas por time.`);
         return;
       }
     }
@@ -651,8 +661,11 @@ export function ManualMode({
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted">
                   <span>Titulares: {titIds.length}/{boleirosPorTime}</span>
-                  {reservasPorTime > 0 ? (
-                    <span>Reservas: {resIds.length}/{reservasPorTime}</span>
+                  {reservasIlimitadas || reservasPorTime > 0 ? (
+                    <span>
+                      Reservas: {resIds.length}
+                      {reservasIlimitadas ? '' : `/${reservasPorTime}`}
+                    </span>
                   ) : null}
                 </div>
                 <TitularesDroppable id={cid}>
@@ -683,7 +696,7 @@ export function ManualMode({
                   </SortableContext>
                 </TitularesDroppable>
 
-                {reservasPorTime > 0 ? (
+                {reservasIlimitadas || reservasPorTime > 0 ? (
                   <div className="mt-1 border-t border-dashed border-border pt-2">
                     <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
                       Reservas

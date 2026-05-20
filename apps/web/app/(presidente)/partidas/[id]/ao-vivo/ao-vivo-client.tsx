@@ -11,7 +11,6 @@ import {
   Minus,
   Plus,
   RefreshCw,
-  Square,
   Trash2,
   Trophy,
   UserPlus,
@@ -32,10 +31,13 @@ import {
 } from '@/components/ui/dialog';
 import { COR_HEX } from '@/lib/escalacao-ui';
 import {
+  type AoVivoEstado,
   type EventoApi,
   encerrarPartida,
   getToken,
+  limparEventosDoJogo,
   patchAoVivoEstado,
+  postCronometro,
   removerEvento,
 } from '@/lib/aovivo-actions';
 import { ConvidadoAvulsoDialog } from '@/components/partidas/convidado-avulso-dialog';
@@ -45,6 +47,7 @@ import {
   flushPending,
   partitionPending,
   removePending,
+  removePendingForJogo,
   retryFailed,
   useOnline,
   usePending,
@@ -53,8 +56,17 @@ import {
 import type { EscalacaoGetResponse } from '@/lib/escalacao-actions';
 import type { PartidaDetalhe } from '@/lib/types';
 import { clearActiveSession, setActiveSession, setPlacarSnapshot } from '@/lib/aovivo-session';
+import {
+  extrairStatsDeEventos,
+  mergeArtilharia,
+  mergeEstatisticasTimes,
+} from '@/lib/classificacao-aovivo';
 import { Cronometro } from './cronometro';
 import { CartaoModal, GolModal, SubstituicaoModal, type TimeAovivo } from './modais';
+import { ConfrontoElenco } from './confronto-elenco';
+import { loadCronoState } from '@/lib/cronometro-local';
+import { ClassificacaoAcoes } from './classificacao-acoes';
+import { ClassificacaoTabelas } from './classificacao-tabelas';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3333';
 
@@ -72,20 +84,34 @@ const CARTOES_LABEL: Record<string, { label: string; cls: string }> = {
 
 interface DadosExtrasGol {
   golOlimpico?: boolean;
+  jogo?: number;
   clientId?: string;
   [k: string]: unknown;
 }
 
 interface DadosExtrasCartao {
   duracaoAzul?: number;
+  jogo?: number;
   clientId?: string;
   [k: string]: unknown;
 }
 
 interface DadosExtrasSub {
   boleiroSubstitutoId?: string;
+  jogo?: number;
   clientId?: string;
   [k: string]: unknown;
+}
+
+interface JogadorSelecionado {
+  timeId: string;
+  boleiroId: string;
+  boleiroNome: string;
+}
+
+function eventoJogo(ev: EventoApi): number {
+  const j = (ev.dadosExtras as { jogo?: number } | null)?.jogo;
+  return typeof j === 'number' && j >= 1 ? j : 1;
 }
 
 export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
@@ -93,26 +119,52 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
   const isOnline = useOnline();
   const pending = usePending(partida.id);
 
+  const numPartidas =
+    partida.numPartidas ??
+    Math.max(1, Math.floor(partida.tempoTotal / Math.max(1, partida.tempoPartida)));
+
+  // Reactive aoVivoEstado — evita usar o valor stale do SSR após PATCHes
+  const [aoVivoEstado, setAoVivoEstado] = useState<AoVivoEstado>(() => ({
+    jogoAtual: 1,
+    jogoFinalizado: false,
+    resultados: [],
+    confronto: null,
+    ...(partida.aoVivoEstado ?? {}),
+  }));
+
+  const jogoAtual = aoVivoEstado.jogoAtual ?? 1;
+  const jogoFinalizado = aoVivoEstado.jogoFinalizado ?? false;
+  const confronto = aoVivoEstado.confronto ?? null;
+
   const [eventos, setEventos] = useState<EventoApi[]>(eventosIniciais);
   const [minuto, setMinuto] = useState(0);
   const [golOpen, setGolOpen] = useState(false);
   const [cartaoOpen, setCartaoOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
-  const [encerrarOpen, setEncerrarOpen] = useState(false);
   const [encerrando, setEncerrando] = useState(false);
+  const [encerrarOpen, setEncerrarOpen] = useState(false);
   const [defaultTimeId, setDefaultTimeId] = useState<string | null>(null);
+  const [defaultBoleiroId, setDefaultBoleiroId] = useState<string | null>(null);
   const [syncedFlash, setSyncedFlash] = useState(false);
   const [jogadoresOpen, setJogadoresOpen] = useState(false);
   const [confrontoOpen, setConfrontoOpen] = useState(false);
-  const [confronto, setConfronto] = useState<{
-    timeAId: string;
-    timeBId: string;
-  } | null>(() => partida.aoVivoEstado?.confronto ?? null);
-  const flushingRef = useRef(false);
+  const [jogadorSelecionado, setJogadorSelecionado] = useState<JogadorSelecionado | null>(null);
+  const [confirmandoFinalizar, setConfirmandoFinalizar] = useState(false);
+  const [finalizando, setFinalizando] = useState(false);
+  const [feedExpandido, setFeedExpandido] = useState(true);
+  const [jogoEmAndamento, setJogoEmAndamento] = useState(false);
 
-  const numPartidas =
-    partida.numPartidas ??
-    Math.max(1, Math.floor(partida.tempoTotal / Math.max(1, partida.tempoPartida)));
+  const flushingRef = useRef(false);
+  const [clientReady, setClientReady] = useState(false);
+
+  useEffect(() => {
+    setClientReady(true);
+  }, []);
+
+  useEffect(() => {
+    const s = loadCronoState(partida.id, partida.tempoPartida, numPartidas);
+    setJogoEmAndamento(s.acumuladoMs > 0 || s.rodando);
+  }, [partida.id, partida.tempoPartida, numPartidas, jogoAtual]);
 
   const cartaoAzulAtivo = !!(
     partida.regras as Record<string, { ativo?: boolean }>
@@ -127,7 +179,6 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     partida.regras as Record<string, { ativo?: boolean }>
   )?.gol_olimpico_duplo?.ativo;
 
-  // Times ao vivo: vem da escalação (com nomes/IDs reais de boleiros).
   const times: TimeAovivo[] = useMemo(() => {
     if (!escalacao || escalacao.times.length === 0) return [];
     return escalacao.times.map((t) => ({
@@ -149,13 +200,20 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     return times.filter((t) => t.id === confronto.timeAId || t.id === confronto.timeBId);
   }, [times, confronto, partida.numTimes]);
 
+  // Abre seletor de confronto só antes do jogo começar (cronômetro parado e zerado)
   useEffect(() => {
-    if (partida.numTimes > 2 && !confronto && times.length >= 2) {
+    if (
+      partida.numTimes > 2 &&
+      !confronto &&
+      times.length >= 2 &&
+      !jogoEmAndamento &&
+      !jogoFinalizado
+    ) {
       setConfrontoOpen(true);
     }
-  }, [partida.numTimes, confronto, times.length]);
+  }, [partida.numTimes, confronto, times.length, jogoEmAndamento, jogoFinalizado]);
 
-  // Placar derivado de eventos
+  // Placar total (todos os jogos) — para LiveMatchBar e snapshot
   const placarPorTime = useMemo(() => {
     const map = new Map<string, number>();
     for (const ev of eventos) {
@@ -166,6 +224,23 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     return map;
   }, [eventos]);
 
+  // Eventos apenas do sub-jogo em andamento (jogos finalizados sao limpos apos gravar em resultados)
+  const eventosJogoAtual = useMemo(
+    () => eventos.filter((ev) => eventoJogo(ev) === jogoAtual),
+    [eventos, jogoAtual],
+  );
+
+  // Placar filtrado pelo jogo atual (para exibir no PlacarTime e ClassificacaoRodape)
+  const placarJogoAtual = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const ev of eventosJogoAtual) {
+      if (ev.tipo === 'gol' && ev.timeId) {
+        map.set(ev.timeId, (map.get(ev.timeId) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [eventosJogoAtual]);
+
   useEffect(() => {
     if (partida.status !== 'em_andamento') return;
     setActiveSession({
@@ -175,14 +250,7 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
       numPartidas,
       times: times.map((t) => ({ id: t.id, nome: t.nome, cor: t.cor })),
     });
-  }, [
-    partida.id,
-    partida.status,
-    partida.grupo.nome,
-    partida.tempoPartida,
-    numPartidas,
-    times,
-  ]);
+  }, [partida.id, partida.status, partida.grupo.nome, partida.tempoPartida, numPartidas, times]);
 
   useEffect(() => {
     if (partida.status !== 'em_andamento') return;
@@ -200,13 +268,10 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
         token: tk,
         onItemSent: () => {},
         onItemFailed: (_item, reason) => {
-          toast.error(`Evento não pôde ser enviado: ${reason}`, {
-            duration: 6000,
-          });
+          toast.error(`Evento não pôde ser enviado: ${reason}`, { duration: 6000 });
         },
       });
       if (res.sent > 0) {
-        // refetch eventos para refletir os IDs reais
         const r = await fetch(`${API_URL}/api/partidas/${partida.id}/eventos`, {
           headers: { Authorization: `Bearer ${tk}` },
         });
@@ -226,12 +291,11 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     }
   }, [partida.id, isOnline]);
 
-  // Flush automático ao voltar online ou quando a fila aumenta.
   useEffect(() => {
     void tryFlush();
   }, [isOnline, pending.length, tryFlush]);
 
-  // Optimistic insert: cria evento local enquanto enfileira no backend.
+  // Enfileira evento com `jogo` nos dadosExtras
   async function recordEvento(
     body: {
       tipo: string;
@@ -242,8 +306,10 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     },
     timeNome?: string,
     timeCor?: string,
+    boleiroNomePassed?: string,
   ) {
-    const item = await enqueueEvento(partida.id, body);
+    const extras = { ...(body.dadosExtras ?? {}), jogo: jogoAtual };
+    const item = await enqueueEvento(partida.id, { ...body, dadosExtras: extras });
     const optimistic: EventoApi = {
       id: `pending-${item.clientId}`,
       tipo: body.tipo,
@@ -252,7 +318,8 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
       timeNome: timeNome ?? null,
       timeCor: timeCor ?? null,
       boleiroId: body.boleiroId ?? null,
-      dadosExtras: { ...(body.dadosExtras ?? {}), clientId: item.clientId },
+      boleiroNome: boleiroNomePassed ?? null,
+      dadosExtras: { ...extras, clientId: item.clientId },
       criadoEm: new Date().toISOString(),
     };
     setEventos((evs) => [...evs, optimistic]);
@@ -269,16 +336,14 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
       );
       return;
     }
-    // -1: remover último gol daquele time (otimista + backend se já sincronizado)
     const evs = [...eventos];
     for (let i = evs.length - 1; i >= 0; i--) {
       const ev = evs[i]!;
-      if (ev.tipo === 'gol' && ev.timeId === timeId) {
+      if (ev.tipo === 'gol' && ev.timeId === timeId && eventoJogo(ev) === jogoAtual) {
         evs.splice(i, 1);
         setEventos(evs);
         if (ev.id.startsWith('pending-')) {
-          const cid =
-            (ev.dadosExtras as { clientId?: string } | null)?.clientId ?? null;
+          const cid = (ev.dadosExtras as { clientId?: string } | null)?.clientId ?? null;
           if (cid) void removePending(partida.id, cid);
         } else {
           void removerEvento(partida.id, ev.id).catch(() => {
@@ -292,7 +357,13 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
 
   function abrirGolDoTime(timeId: string) {
     setDefaultTimeId(timeId);
+    setDefaultBoleiroId(null);
     setGolOpen(true);
+  }
+
+  // Toque no jogador no elenco → abre dialog de ação rápida
+  function handleAcaoJogador(payload: { timeId: string; boleiroId: string; boleiroNome: string }) {
+    setJogadorSelecionado(payload);
   }
 
   async function handleEncerrar() {
@@ -305,6 +376,104 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     } catch {
       toast.error('Não foi possível encerrar a partida.');
       setEncerrando(false);
+    }
+  }
+
+  // Finalizar jogo: grava na classificacao (resultados) e limpa eventos deste sub-jogo
+  async function handleConfirmarFinalizar() {
+    setFinalizando(true);
+    try {
+      const golsA = placarJogoAtual.get(timesPlacar[0]?.id ?? '') ?? 0;
+      const golsB = placarJogoAtual.get(timesPlacar[1]?.id ?? '') ?? 0;
+      const novoResultado = {
+        jogo: jogoAtual,
+        timeAId: timesPlacar[0]?.id ?? '',
+        timeBId: timesPlacar[1]?.id ?? '',
+        golsA,
+        golsB,
+      };
+      const semEsteJogo = (aoVivoEstado.resultados ?? []).filter((r) => r.jogo !== jogoAtual);
+      const novosResultados = [...semEsteJogo, novoResultado];
+
+      const resolverNome = (boleiroId: string, timeId: string) => {
+        const time = times.find((t) => t.id === timeId);
+        const b = time?.boleiros.find((x) => x.boleiroId === boleiroId);
+        return b?.apelido ?? b?.nome ?? 'Jogador';
+      };
+      const { cartoesPorTime, artilheiros } = extrairStatsDeEventos(
+        eventosJogoAtual,
+        resolverNome,
+      );
+      const novasEstatisticas = mergeEstatisticasTimes(
+        aoVivoEstado.estatisticasTimes,
+        cartoesPorTime,
+      );
+      const novaArtilharia = mergeArtilharia(aoVivoEstado.artilharia, artilheiros);
+
+      const r = await patchAoVivoEstado(partida.id, {
+        jogoFinalizado: true,
+        resultados: novosResultados,
+        estatisticasTimes: novasEstatisticas,
+        artilharia: novaArtilharia,
+      });
+      setAoVivoEstado((prev) => ({
+        ...prev,
+        jogoFinalizado: true,
+        resultados: r.aoVivoEstado.resultados ?? novosResultados,
+        estatisticasTimes: r.aoVivoEstado.estatisticasTimes ?? novasEstatisticas,
+        artilharia: r.aoVivoEstado.artilharia ?? novaArtilharia,
+      }));
+      void postCronometro(partida.id, { acao: 'pausar', clientId: crypto.randomUUID() }).catch(() => {});
+
+      await limparEventosDoJogo(partida.id, jogoAtual);
+      await removePendingForJogo(partida.id, jogoAtual);
+      setEventos((evs) => evs.filter((ev) => eventoJogo(ev) !== jogoAtual));
+
+      setConfirmandoFinalizar(false);
+      toast.success(`Jogo ${jogoAtual} finalizado! Placar salvo na classificação.`);
+    } catch {
+      toast.error('Não foi possível finalizar o jogo.');
+    } finally {
+      setFinalizando(false);
+    }
+  }
+
+  // Avançar para o próximo jogo
+  async function handleProximaPartida(novoConfronto?: { timeAId: string; timeBId: string }) {
+    const nextJogo = jogoAtual + 1;
+    const confrontoFinal = novoConfronto ?? confronto;
+    try {
+      const r = await patchAoVivoEstado(partida.id, {
+        jogoAtual: nextJogo,
+        jogoFinalizado: false,
+        ...(confrontoFinal !== undefined ? { confronto: confrontoFinal } : {}),
+      });
+      await postCronometro(partida.id, {
+        acao: 'proximo_jogo',
+        jogoAtual: nextJogo,
+        clientId: crypto.randomUUID(),
+      }).catch(() => {});
+      setAoVivoEstado((prev) => ({
+        ...prev,
+        jogoAtual: nextJogo,
+        jogoFinalizado: false,
+        ...(r.aoVivoEstado.confronto !== undefined
+          ? { confronto: r.aoVivoEstado.confronto }
+          : confrontoFinal !== undefined
+            ? { confronto: confrontoFinal }
+            : {}),
+      }));
+    } catch {
+      toast.error('Não foi possível avançar para o próximo jogo.');
+    }
+  }
+
+  // Disparado pelo ClassificacaoRodape: se 3+ times, abre seletor; se 2, avança direto
+  function onProximaPartidaClicked() {
+    if (partida.numTimes > 2) {
+      setConfrontoOpen(true);
+    } else {
+      void handleProximaPartida();
     }
   }
 
@@ -322,10 +491,7 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     }
   }
 
-  const eventosOrdered = useMemo(
-    () => [...eventos].reverse(),
-    [eventos],
-  );
+  const eventosOrdered = useMemo(() => [...eventosJogoAtual].reverse(), [eventosJogoAtual]);
 
   const { ativos: pendingAtivos, falhos: pendingFalhos } = useMemo(
     () => partitionPending(pending),
@@ -354,7 +520,7 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-32">
+    <div className="min-h-screen bg-background pb-8">
       <header className="container flex flex-wrap items-center gap-3 pt-3">
         <Link
           href={`/partidas/${partida.id}`}
@@ -377,36 +543,35 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
         </span>
       </header>
 
-      {/* Banner offline / pending / falhos */}
+      {/* Banners offline / pending / falhos (só no cliente — IndexedDB / navigator) */}
       <div className="container mt-3 space-y-2">
-        {!isOnline ? (
+        {clientReady && !isOnline ? (
           <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-sm text-warning">
             <WifiOff className="h-4 w-4" />
             <span>
-              Você está offline — {pendingAtivos.length} evento(s) na fila local serão enviados
-              quando voltar à internet.
+              Você está offline — {pendingAtivos.length} evento(s) na fila serão enviados ao voltar.
             </span>
           </div>
-        ) : pendingAtivos.length > 0 ? (
+        ) : clientReady && pendingAtivos.length > 0 ? (
           <div className="flex items-center gap-2 rounded-lg border border-info/40 bg-info/10 px-3 py-2 text-sm text-info">
             <Wifi className="h-4 w-4" />
             <span>
               Sincronizando {pendingAtivos.length} evento(s)...
-              {totalGoleiroAttempts > 0 ? (
+              {totalGoleiroAttempts > 0 && (
                 <span className="ml-1 text-xs opacity-80">
                   ({totalGoleiroAttempts} retentativa{totalGoleiroAttempts === 1 ? '' : 's'})
                 </span>
-              ) : null}
+              )}
             </span>
           </div>
-        ) : syncedFlash ? (
+        ) : clientReady && syncedFlash ? (
           <div className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/15 px-3 py-2 text-sm text-success">
             <CheckCircle2 className="h-4 w-4" />
             Sincronizado!
           </div>
         ) : null}
 
-        {pendingFalhos.length > 0 ? (
+        {clientReady && pendingFalhos.length > 0 && (
           <div className="space-y-1 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
             <p className="flex items-center gap-2 font-medium text-destructive">
               <AlertTriangle className="h-4 w-4" />
@@ -443,45 +608,46 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
               ))}
             </ul>
           </div>
-        ) : null}
+        )}
       </div>
 
       <main className="container mt-3 space-y-4">
-        {/* Cronômetro */}
+        {/* Cronômetro compacto */}
         <Cronometro
           partidaId={partida.id}
           tempoPartidaMin={partida.tempoPartida}
           numPartidas={numPartidas}
+          jogoAtual={jogoAtual}
           onMinutoChange={setMinuto}
-          onProximoJogo={() => {
-            void patchAoVivoEstado(partida.id, {
-              jogoAtual: Math.min(
-                numPartidas,
-                (partida.aoVivoEstado?.jogoAtual ?? 1) + 1,
-              ),
-            }).catch(() => {});
-          }}
+          onStateChange={(s) => setJogoEmAndamento(s.acumuladoMs > 0 || s.rodando)}
         />
 
-        {partida.numTimes > 2 ? (
+        {/* Selector de confronto (3+ times) */}
+        {partida.numTimes > 2 && (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-muted">
               Confronto:{' '}
               {confronto
-                ? `${times.find((t) => t.id === confronto.timeAId)?.nome ?? '?'} × ${
-                    times.find((t) => t.id === confronto.timeBId)?.nome ?? '?'
-                  }`
+                ? `${times.find((t) => t.id === confronto.timeAId)?.nome ?? '?'} × ${times.find((t) => t.id === confronto.timeBId)?.nome ?? '?'}`
                 : 'Escolha os dois times em campo'}
             </p>
-            <Button type="button" size="sm" variant="outline" onClick={() => setConfrontoOpen(true)}>
-              Alterar confronto
-            </Button>
+            {!jogoEmAndamento && !jogoFinalizado ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setConfrontoOpen(true)}
+              >
+                Escolher confronto
+              </Button>
+            ) : null}
           </div>
-        ) : null}
+        )}
 
-        {/* Placar */}
+        {/* Placar do jogo atual */}
         <section className="-mx-2 overflow-x-auto px-2">
-          <div className={`grid min-w-fit gap-2 ${
+          <div
+            className={`grid min-w-fit gap-2 ${
               timesPlacar.length === 2
                 ? 'grid-cols-2'
                 : timesPlacar.length === 3
@@ -493,7 +659,8 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
               <PlacarTime
                 key={t.id}
                 time={t}
-                gols={placarPorTime.get(t.id) ?? 0}
+                gols={placarJogoAtual.get(t.id) ?? 0}
+                disabled={jogoFinalizado}
                 onMinus={() => quickGol(t.id, -1)}
                 onPlus={() => quickGol(t.id, 1)}
                 onLongPress={() => abrirGolDoTime(t.id)}
@@ -502,15 +669,28 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
           </div>
         </section>
 
-        {/* Botões de eventos */}
-        <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {/* Elenco lado a lado */}
+        {timesPlacar.length >= 2 && (
+          <ConfrontoElenco
+            times={timesPlacar.slice(0, 2)}
+            eventos={eventosJogoAtual}
+            jogoAtual={jogoAtual}
+            jogoFinalizado={jogoFinalizado}
+            onAcaoJogador={handleAcaoJogador}
+          />
+        )}
+
+        {/* 3 botões de ação */}
+        <section className="grid grid-cols-3 gap-2">
           <Button
             type="button"
             size="lg"
             variant="secondary"
-            className="h-14 justify-start"
+            className="h-14 flex-col gap-0.5 text-xs"
+            disabled={jogoFinalizado}
             onClick={() => {
               setDefaultTimeId(null);
+              setDefaultBoleiroId(null);
               setGolOpen(true);
             }}
           >
@@ -521,8 +701,13 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
             type="button"
             size="lg"
             variant="secondary"
-            className="h-14 justify-start"
-            onClick={() => setCartaoOpen(true)}
+            className="h-14 flex-col gap-0.5 text-xs"
+            disabled={jogoFinalizado}
+            onClick={() => {
+              setDefaultTimeId(null);
+              setDefaultBoleiroId(null);
+              setCartaoOpen(true);
+            }}
           >
             <span className="text-2xl">🟨</span>
             Cartão
@@ -531,151 +716,228 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
             type="button"
             size="lg"
             variant="secondary"
-            className="h-14 justify-start"
-            onClick={() => setSubOpen(true)}
+            className="h-14 flex-col gap-0.5 text-xs"
+            disabled={jogoFinalizado}
+            onClick={() => {
+              setDefaultTimeId(null);
+              setDefaultBoleiroId(null);
+              setSubOpen(true);
+            }}
           >
             <ArrowLeftRight className="h-5 w-5" />
-            Substituição
+            Sub
           </Button>
-          {cartaoAzulAtivo ? (
-            <Button
-              type="button"
-              size="lg"
-              variant="secondary"
-              className="h-14 justify-start"
-              onClick={() => setCartaoOpen(true)}
-            >
-              <span className="text-2xl">🟦</span>
-              Cartão Azul
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="lg"
-              variant="destructive"
-              className="h-14 justify-start"
-              onClick={() => setEncerrarOpen(true)}
-            >
-              <Square className="h-5 w-5" />
-              Encerrar
-            </Button>
-          )}
         </section>
 
-        {/* Feed */}
+        <ClassificacaoTabelas
+          times={times}
+          aoVivoEstado={aoVivoEstado}
+          jogoFinalizado={jogoFinalizado}
+          placarJogoAtual={placarJogoAtual}
+          eventosJogoAtual={eventosJogoAtual}
+        />
+
+        {/* Feed de eventos (colapsável) */}
         <section className="space-y-2">
-          <h2 className="font-display text-lg font-semibold">Eventos</h2>
-          {eventosOrdered.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border bg-surface px-3 py-3 text-sm text-muted">
-              Sem eventos ainda. Use os botões acima para registrar.
-            </p>
-          ) : (
-            <ul className="space-y-1.5">
-              {eventosOrdered.map((ev) => (
-                <FeedItem key={ev.id} ev={ev} onDelete={() => void deleteEvento(ev)} />
-              ))}
-            </ul>
+          <button
+            type="button"
+            onClick={() => setFeedExpandido((v) => !v)}
+            className="flex w-full items-center justify-between font-display text-base font-semibold"
+          >
+            <span>Eventos</span>
+            <span className="text-xs text-muted">{feedExpandido ? '▲ ocultar' : '▼ mostrar'}</span>
+          </button>
+          {feedExpandido && (
+            <>
+              {eventosOrdered.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border bg-surface px-3 py-3 text-sm text-muted">
+                  Sem eventos. Use os botões acima para registrar.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {eventosOrdered.map((ev) => (
+                    <FeedItem key={ev.id} ev={ev} onDelete={() => void deleteEvento(ev)} />
+                  ))}
+                </ul>
+              )}
+            </>
           )}
         </section>
 
-        {cartaoAzulAtivo ? (
-          <Button
-            type="button"
-            variant="destructive"
-            className="w-full"
-            onClick={() => setEncerrarOpen(true)}
-          >
-            <Square className="h-4 w-4" />
-            Encerrar partida
-          </Button>
-        ) : null}
+        <ClassificacaoAcoes
+          jogoAtual={jogoAtual}
+          jogoFinalizado={jogoFinalizado}
+          isUltimoJogo={jogoAtual >= numPartidas}
+          confirmandoFinalizar={confirmandoFinalizar}
+          finalizando={finalizando}
+          encerrando={encerrando}
+          nomeA={timesPlacar[0]?.nome ?? 'Time A'}
+          nomeB={timesPlacar[1]?.nome ?? 'Time B'}
+          golsA={placarJogoAtual.get(timesPlacar[0]?.id ?? '') ?? 0}
+          golsB={placarJogoAtual.get(timesPlacar[1]?.id ?? '') ?? 0}
+          onRequestFinalizar={() => setConfirmandoFinalizar(true)}
+          onConfirmarFinalizar={() => void handleConfirmarFinalizar()}
+          onCancelarFinalizar={() => setConfirmandoFinalizar(false)}
+          onProximaPartida={onProximaPartidaClicked}
+          onEncerrar={() => setEncerrarOpen(true)}
+        />
       </main>
 
-      {/* Modais */}
+      {/* Modal: Gol */}
       <GolModal
         open={golOpen}
         onOpenChange={setGolOpen}
-        times={times}
+        times={timesPlacar.length > 0 ? timesPlacar : times}
         minutoAtual={minuto}
         defaultTimeId={defaultTimeId}
+        defaultBoleiroId={defaultBoleiroId}
         permitirOlimpico={golOlimpicoDuplo}
         onConfirm={async (v) => {
           const t = times.find((x) => x.id === v.timeId);
           const extras: DadosExtrasGol = {};
           if (v.golOlimpico) extras.golOlimpico = true;
+          const bName =
+            t?.boleiros.find((b) => b.boleiroId === v.boleiroId)?.apelido ??
+            t?.boleiros.find((b) => b.boleiroId === v.boleiroId)?.nome;
           await recordEvento(
-            {
-              tipo: 'gol',
-              timeId: v.timeId,
-              boleiroId: v.boleiroId,
-              minuto: v.minuto,
-              dadosExtras: extras,
-            },
+            { tipo: 'gol', timeId: v.timeId, boleiroId: v.boleiroId, minuto: v.minuto, dadosExtras: extras },
             t?.nome,
             t ? COR_HEX[(t.cor as CorTime) ?? 'blue'] : undefined,
+            bName,
           );
         }}
       />
 
+      {/* Modal: Cartão */}
       <CartaoModal
         open={cartaoOpen}
         onOpenChange={setCartaoOpen}
-        times={times}
+        times={timesPlacar.length > 0 ? timesPlacar : times}
         minutoAtual={minuto}
+        defaultTimeId={defaultTimeId}
+        defaultBoleiroId={defaultBoleiroId}
         cartaoAzulAtivo={cartaoAzulAtivo}
         duracaoAzulPadrao={duracaoAzulPadrao}
         onConfirm={async (v) => {
           const t = times.find((x) => x.id === v.timeId);
           const extras: DadosExtrasCartao = {};
           if (v.duracaoAzul) extras.duracaoAzul = v.duracaoAzul;
+          const bName =
+            t?.boleiros.find((b) => b.boleiroId === v.boleiroId)?.apelido ??
+            t?.boleiros.find((b) => b.boleiroId === v.boleiroId)?.nome;
           await recordEvento(
-            {
-              tipo: v.tipo,
-              timeId: v.timeId,
-              boleiroId: v.boleiroId,
-              minuto: v.minuto,
-              dadosExtras: extras,
-            },
+            { tipo: v.tipo, timeId: v.timeId, boleiroId: v.boleiroId, minuto: v.minuto, dadosExtras: extras },
             t?.nome,
             t ? COR_HEX[(t.cor as CorTime) ?? 'blue'] : undefined,
+            bName,
           );
         }}
       />
 
+      {/* Modal: Substituição */}
       <SubstituicaoModal
         open={subOpen}
         onOpenChange={setSubOpen}
-        times={times}
+        times={timesPlacar.length > 0 ? timesPlacar : times}
         minutoAtual={minuto}
+        defaultTimeId={defaultTimeId}
+        defaultBoleiroId={defaultBoleiroId}
         onConfirm={async (v) => {
           const t = times.find((x) => x.id === v.timeId);
           const extras: DadosExtrasSub = { boleiroSubstitutoId: v.entraBoleiroId };
           await recordEvento(
-            {
-              tipo: 'substituicao',
-              timeId: v.timeId,
-              boleiroId: v.saiBoleiroId,
-              minuto: v.minuto,
-              dadosExtras: extras,
-            },
+            { tipo: 'substituicao', timeId: v.timeId, boleiroId: v.saiBoleiroId, minuto: v.minuto, dadosExtras: extras },
             t?.nome,
             t ? COR_HEX[(t.cor as CorTime) ?? 'blue'] : undefined,
           );
         }}
       />
 
+      {/* Dialog de ação rápida ao tocar no jogador do elenco */}
+      <Dialog
+        open={!!jogadorSelecionado}
+        onOpenChange={(open) => !open && setJogadorSelecionado(null)}
+      >
+        <DialogContent fullScreenOnMobile={false} className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="truncate">
+              {jogadorSelecionado?.boleiroNome ?? 'Jogador'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-2 pt-1">
+            <Button
+              type="button"
+              size="lg"
+              variant="secondary"
+              className="justify-start gap-3"
+              onClick={() => {
+                if (!jogadorSelecionado) return;
+                setDefaultTimeId(jogadorSelecionado.timeId);
+                setDefaultBoleiroId(jogadorSelecionado.boleiroId);
+                setJogadorSelecionado(null);
+                setGolOpen(true);
+              }}
+            >
+              <span className="text-2xl">⚽</span> Gol
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              variant="secondary"
+              className="justify-start gap-3"
+              onClick={() => {
+                if (!jogadorSelecionado) return;
+                setDefaultTimeId(jogadorSelecionado.timeId);
+                setDefaultBoleiroId(jogadorSelecionado.boleiroId);
+                setJogadorSelecionado(null);
+                setCartaoOpen(true);
+              }}
+            >
+              <span className="text-2xl">🟨</span> Cartão
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              variant="secondary"
+              className="justify-start gap-3"
+              onClick={() => {
+                if (!jogadorSelecionado) return;
+                setDefaultTimeId(jogadorSelecionado.timeId);
+                setDefaultBoleiroId(jogadorSelecionado.boleiroId);
+                setJogadorSelecionado(null);
+                setSubOpen(true);
+              }}
+            >
+              <ArrowLeftRight className="h-5 w-5" /> Sub
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setJogadorSelecionado(null)}>
+              Cancelar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: confronto (3+ times) */}
       <ConfrontoDialog
         open={confrontoOpen}
         onOpenChange={setConfrontoOpen}
         times={times}
         initial={confronto}
         onConfirm={async (c) => {
-          await patchAoVivoEstado(partida.id, { confronto: c });
-          setConfronto(c);
+          if (jogoFinalizado) {
+            // Confirmação de confronto para próxima partida
+            await handleProximaPartida(c);
+          } else {
+            await patchAoVivoEstado(partida.id, { confronto: c });
+            setAoVivoEstado((prev) => ({ ...prev, confronto: c }));
+          }
           setConfrontoOpen(false);
         }}
       />
 
+      {/* Dialog: Jogadores */}
       <Dialog open={jogadoresOpen} onOpenChange={setJogadoresOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -710,21 +972,25 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* Confirmar encerrar */}
+      {/* Dialog: Confirmar encerrar */}
       <Dialog open={encerrarOpen} onOpenChange={setEncerrarOpen}>
         <DialogContent fullScreenOnMobile={false} className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Encerrar partida?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted">
-            O placar final será congelado e a partida passará para a tela de resumo. Esta
-            ação não pode ser desfeita.
+            O placar final será congelado e a partida passará para a tela de resumo. Esta ação não
+            pode ser desfeita.
           </p>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setEncerrarOpen(false)} disabled={encerrando}>
+            <Button
+              variant="ghost"
+              onClick={() => setEncerrarOpen(false)}
+              disabled={encerrando}
+            >
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={handleEncerrar} disabled={encerrando}>
+            <Button variant="destructive" onClick={() => void handleEncerrar()} disabled={encerrando}>
               <Trophy className="h-4 w-4" />
               Encerrar
             </Button>
@@ -736,7 +1002,7 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
 }
 
 // -----------------------------------------------------------------------------
-// PlacarTime — botões - / + + tap longo
+// PlacarTime
 // -----------------------------------------------------------------------------
 
 const LONG_PRESS_MS = 500;
@@ -744,12 +1010,14 @@ const LONG_PRESS_MS = 500;
 function PlacarTime({
   time,
   gols,
+  disabled,
   onMinus,
   onPlus,
   onLongPress,
 }: {
   time: TimeAovivo;
   gols: number;
+  disabled?: boolean;
   onMinus: () => void;
   onPlus: () => void;
   onLongPress: () => void;
@@ -783,16 +1051,15 @@ function PlacarTime({
           style={{ backgroundColor: cor }}
           aria-hidden
         />
-        <span className="truncate font-display text-sm font-semibold uppercase">
-          {time.nome}
-        </span>
+        <span className="truncate font-display text-sm font-semibold uppercase">{time.nome}</span>
       </div>
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
+          disabled={disabled}
           onClick={onMinus}
           aria-label={`Remover gol de ${time.nome}`}
-          className="flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-surface text-foreground hover:bg-surface-offset"
+          className="flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-surface text-foreground hover:bg-surface-offset disabled:opacity-40"
         >
           <Minus className="h-5 w-5" />
         </button>
@@ -804,11 +1071,9 @@ function PlacarTime({
         </span>
         <button
           type="button"
+          disabled={disabled}
           onClick={(e) => {
-            // Se foi disparado long-press, ignorar o click (já abriu modal).
             if (movedRef.current) return;
-            // O onClick nativo do botão também dispara após pointerup; só processamos
-            // se o timer ainda estava ativo (= não virou long-press).
             if (longPressTimer.current === null) return;
             cancelLongPress();
             onPlus();
@@ -816,17 +1081,13 @@ function PlacarTime({
           }}
           onPointerDown={startLongPress}
           onPointerUp={(e) => {
-            if (longPressTimer.current != null) {
-              // Não foi long-press — onClick acima cuidará do +1.
-              return;
-            }
-            // Long-press já disparou; consumir o evento.
+            if (longPressTimer.current != null) return;
             e.preventDefault();
           }}
           onPointerLeave={cancelLongPress}
           onPointerCancel={cancelLongPress}
           aria-label={`Adicionar gol de ${time.nome}`}
-          className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active"
+          className="flex h-14 w-14 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-active disabled:opacity-40"
         >
           <Plus className="h-5 w-5" />
         </button>
@@ -843,7 +1104,7 @@ function FeedItem({ ev, onDelete }: { ev: EventoApi; onDelete: () => void }) {
   const pending = ev.id.startsWith('pending-');
   return (
     <li className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
-      <span className="w-10 text-center text-sm font-mono tabular-nums text-muted">
+      <span className="w-10 shrink-0 text-center font-mono text-sm tabular-nums text-muted">
         {ev.minuto != null ? `${ev.minuto}'` : '—'}
       </span>
       <EventoBadge tipo={ev.tipo} dadosExtras={ev.dadosExtras} />
@@ -853,13 +1114,17 @@ function FeedItem({ ev, onDelete }: { ev: EventoApi; onDelete: () => void }) {
         aria-hidden
       />
       <span className="min-w-0 flex-1 truncate text-sm">
-        {ev.timeNome ? <span className="font-medium">{ev.timeNome}</span> : null}
+        {ev.boleiroNome ? (
+          <span className="font-medium">{ev.boleiroNome}</span>
+        ) : ev.timeNome ? (
+          <span className="font-medium">{ev.timeNome}</span>
+        ) : null}
       </span>
-      {pending ? (
+      {pending && (
         <span className="text-xs text-warning" title="Aguardando sincronização">
           ⌛
         </span>
-      ) : null}
+      )}
       <button
         type="button"
         onClick={onDelete}
@@ -908,6 +1173,10 @@ function EventoBadge({
     </span>
   );
 }
+
+// -----------------------------------------------------------------------------
+// ConfrontoDialog
+// -----------------------------------------------------------------------------
 
 function ConfrontoDialog({
   open,
@@ -997,6 +1266,3 @@ function ConfrontoDialog({
     </Dialog>
   );
 }
-
-// referencia explicita p/ TS sobre PendingEvento (evita warning de import)
-export type { PendingEvento };
