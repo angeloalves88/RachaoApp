@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { COR_HEX } from '@/lib/escalacao-ui';
 import type { CorTime } from '@rachao/shared/zod';
 import type { AoVivoEstado, EventoApi } from '@/lib/aovivo-actions';
@@ -33,14 +33,16 @@ export function ClassificacaoTabelas({
   placarJogoAtual,
   eventosJogoAtual,
 }: Props) {
-  const resolverNome = (boleiroId: string, timeId: string) =>
-    resolverNomeBoleiro(times, boleiroId, timeId);
+  const resolverNome = useCallback(
+    (boleiroId: string, timeId: string) => resolverNomeBoleiro(times, boleiroId, timeId),
+    [times],
+  );
 
   const estatisticasExibicao = useMemo(() => {
     if (jogoFinalizado) return aoVivoEstado.estatisticasTimes;
     const { cartoesPorTime } = extrairStatsDeEventos(eventosJogoAtual, resolverNome);
     return mergeEstatisticasTimes(aoVivoEstado.estatisticasTimes, cartoesPorTime);
-  }, [jogoFinalizado, aoVivoEstado.estatisticasTimes, eventosJogoAtual, times]);
+  }, [jogoFinalizado, aoVivoEstado.estatisticasTimes, eventosJogoAtual, resolverNome]);
 
   const classificacao = useMemo(
     () =>
@@ -61,7 +63,7 @@ export function ClassificacaoTabelas({
         resolverNome,
         !jogoFinalizado,
       ),
-    [aoVivoEstado.artilharia, eventosJogoAtual, jogoFinalizado, times],
+    [aoVivoEstado.artilharia, eventosJogoAtual, jogoFinalizado, resolverNome],
   );
 
   if (classificacao.length === 0 && artilharia.length === 0) return null;

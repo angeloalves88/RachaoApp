@@ -22,8 +22,6 @@ interface Props {
 }
 
 export function ConfrontoElenco({ times, eventos, jogoAtual, jogoFinalizado, onAcaoJogador }: Props) {
-  if (times.length < 2) return null;
-
   const eventsByBoleiro = useMemo(() => {
     const map = new Map<string, EventoApi[]>();
     for (const ev of eventos) {
@@ -36,6 +34,8 @@ export function ConfrontoElenco({ times, eventos, jogoAtual, jogoFinalizado, onA
     }
     return map;
   }, [eventos, jogoAtual]);
+
+  if (times.length < 2) return null;
 
   return (
     <div className="grid grid-cols-2 gap-2">
