@@ -88,6 +88,7 @@ const config: Config = {
         },
       },
       fontFamily: {
+        brand: ['var(--font-brand)', 'system-ui', 'sans-serif'],
         display: ['var(--font-display)', 'Impact', 'sans-serif'],
         body: ['var(--font-body)', 'system-ui', 'sans-serif'],
         sans: ['var(--font-body)', 'system-ui', 'sans-serif'],

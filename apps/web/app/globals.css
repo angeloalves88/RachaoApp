@@ -41,6 +41,7 @@
 
     /* Tipografia (next/font preenche essas vars) */
     --font-display: 'Barlow Condensed', Impact, sans-serif;
+    --font-brand: 'Sora', system-ui, sans-serif;
     --font-body: 'Inter', system-ui, sans-serif;
 
     /* Escala fluida */

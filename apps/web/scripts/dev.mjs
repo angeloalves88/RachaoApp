@@ -3,7 +3,7 @@
 // (fallback: PORT, depois 3000). Cross-platform (Windows/macOS/Linux).
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +23,28 @@ for (const file of ['.env.local', '.env']) {
     process.env[key] = value;
   }
 }
+
+/**
+ * Next 15 gera symlinks em `.next/types/` (ex.: cache-life.d.ts).
+ * No Windows + OneDrive, `readlink` falha com EINVAL — removemos antes do boot.
+ */
+function cleanNextTypesOnWindows() {
+  if (process.platform !== 'win32') return;
+  const typesDir = path.join(webRoot, '.next', 'types');
+  if (!existsSync(typesDir)) return;
+  try {
+    rmSync(typesDir, { recursive: true, force: true });
+  } catch {
+    // Se ainda falhar, apaga o cache inteiro do Next.
+    try {
+      rmSync(path.join(webRoot, '.next'), { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+cleanNextTypesOnWindows();
 
 const port = process.env.WEB_PORT || process.env.PORT || '3000';
 const next = spawn('next', ['dev', '--port', port], {

@@ -1,28 +1,43 @@
+import Image from 'next/image';
 import { cn } from '@/lib/utils';
 
 interface LogoProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg';
+  /** Exibe o texto ao lado do ícone (padrão: sim). */
+  showText?: boolean;
 }
 
-export function Logo({ className, size = 'md' }: LogoProps) {
-  const text =
-    size === 'sm' ? 'text-lg' : size === 'lg' ? 'text-3xl' : 'text-2xl';
-  const dot =
-    size === 'sm' ? 'h-6 w-6 text-sm' : size === 'lg' ? 'h-10 w-10 text-base' : 'h-8 w-8 text-sm';
+const config = {
+  sm: { px: 28, text: 'text-[0.95rem]', gap: 'gap-1.5' },
+  md: { px: 36, text: 'text-lg', gap: 'gap-2' },
+  lg: { px: 44, text: 'text-xl', gap: 'gap-2.5' },
+} as const;
+
+export function Logo({ className, size = 'md', showText = true }: LogoProps) {
+  const s = config[size];
 
   return (
-    <div className={cn('inline-flex items-center gap-2', className)}>
-      <span
-        aria-hidden
-        className={cn(
-          'inline-flex items-center justify-center rounded-full bg-primary font-bold text-primary-foreground',
-          dot,
-        )}
-      >
-        ●
-      </span>
-      <span className={cn('font-display font-extrabold tracking-tight', text)}>RACHÃO</span>
+    <div className={cn('inline-flex items-center', s.gap, className)}>
+      <Image
+        src="/brand/logo-rachaoapp.png"
+        alt=""
+        width={s.px}
+        height={s.px}
+        className="shrink-0 object-contain"
+        priority={size !== 'sm'}
+      />
+      {showText ? (
+        <span
+          className={cn(
+            'font-brand font-semibold leading-none tracking-tight text-foreground',
+            s.text,
+          )}
+        >
+          Rachão
+          <span className="font-normal text-muted"> App</span>
+        </span>
+      ) : null}
     </div>
   );
 }

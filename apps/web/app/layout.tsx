@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Barlow_Condensed, Inter } from 'next/font/google';
+import { Barlow_Condensed, Inter, Sora } from 'next/font/google';
 import './globals.css';
 import { SwRegister } from './sw-register';
 
@@ -15,6 +15,13 @@ const barlowCondensed = Barlow_Condensed({
   display: 'swap',
   variable: '--font-display',
   weight: ['600', '700', '800'],
+});
+
+const sora = Sora({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-brand',
+  weight: ['500', '600', '700'],
 });
 
 export const metadata: Metadata = {
@@ -55,7 +62,7 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
-      className={`${inter.variable} ${barlowCondensed.variable} dark`}
+      className={`${inter.variable} ${barlowCondensed.variable} ${sora.variable} dark`}
       suppressHydrationWarning
     >
       <body className="min-h-dvh bg-background text-foreground antialiased">
