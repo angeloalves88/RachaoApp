@@ -2,6 +2,7 @@
  * Escalação de times (T18): leitura, sorteio server-side, persistência, e
  * endpoint público sanitizado para OG / link compartilhável.
  */
+import type { PrismaClient } from '@rachao/db';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import {
@@ -10,7 +11,8 @@ import {
   sorteioOptionsSchema,
 } from '@rachao/shared/zod';
 import { getGrupoAcesso } from '../lib/grupos.js';
-import { badRequest, forbidden, notFound } from '../lib/errors.js';
+import { badRequest, forbidden, gone, notFound } from '../lib/errors.js';
+import { resolveShareLink } from '../lib/share-links.js';
 import {
   detectarBloqueios,
   sortearTimes,
@@ -18,6 +20,7 @@ import {
 } from '../lib/escalacao.js';
 
 const idParam = z.object({ id: z.string().min(1) });
+const tokenParam = z.object({ token: z.string().min(1) });
 
 function nomeConvite(c: {
   boleiroGrupo: { nome: string; apelido: string | null; posicao: string | null } | null;
@@ -40,66 +43,82 @@ function nomeConvite(c: {
   return { nome: 'Boleiro', apelido: null, posicao: null };
 }
 
-const escalacaoRoutes: FastifyPluginAsync = async (fastify) => {
-  /**
-   * GET /api/partidas/publico/:id/escalacao — sem auth (OG + página pública).
-   */
-  fastify.get('/api/partidas/publico/:id/escalacao', async (request, reply) => {
-    const params = idParam.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error.flatten().fieldErrors);
-
-    const partida = await fastify.prisma.partida.findUnique({
-      where: { id: params.data.id },
-      include: {
-        grupo: { select: { nome: true, fotoUrl: true } },
-        estadio: { select: { nome: true } },
-        times: {
-          orderBy: { nome: 'asc' },
-          include: {
-            boleiros: {
-              orderBy: { ordem: 'asc' },
-              include: {
-                boleiroGrupo: { select: { nome: true, apelido: true, posicao: true } },
-                convidadoAvulso: { select: { nome: true, apelido: true, posicao: true } },
-              },
+async function buildPublicEscalacaoPayload(prisma: PrismaClient, partidaId: string) {
+  const partida = await prisma.partida.findUnique({
+    where: { id: partidaId },
+    include: {
+      grupo: { select: { nome: true, fotoUrl: true } },
+      estadio: { select: { nome: true } },
+      times: {
+        orderBy: { nome: 'asc' },
+        include: {
+          boleiros: {
+            orderBy: { ordem: 'asc' },
+            include: {
+              boleiroGrupo: { select: { nome: true, apelido: true, posicao: true } },
+              convidadoAvulso: { select: { nome: true, apelido: true, posicao: true } },
             },
           },
         },
       },
+    },
+  });
+  if (!partida || partida.status === 'cancelada') return null;
+
+  const mapBoleiro = (tb: (typeof partida.times)[0]['boleiros'][0]) => {
+    const { nome, apelido, posicao } = nomeConvite({
+      boleiroGrupo: tb.boleiroGrupo,
+      convidadoAvulso: tb.convidadoAvulso,
     });
-    if (!partida || partida.status === 'cancelada') return notFound(reply);
-
-    const times = partida.times.map((t) => ({
-      id: t.id,
-      nome: t.nome,
-      cor: t.cor,
-      boleiros: t.boleiros.map((tb) => {
-        const { nome, apelido, posicao } = nomeConvite({
-          boleiroGrupo: tb.boleiroGrupo,
-          convidadoAvulso: tb.convidadoAvulso,
-        });
-        return {
-          nome,
-          apelido,
-          posicao,
-          capitao: tb.capitao,
-        };
-      }),
-    }));
-
     return {
-      partida: {
-        id: partida.id,
-        dataHora: partida.dataHora,
-        status: partida.status,
-        localLivre: partida.localLivre,
-        estadio: partida.estadio?.nome ?? null,
-        numTimes: partida.numTimes,
-        boleirosPorTime: partida.boleirosPorTime,
-        grupo: partida.grupo,
-      },
-      times,
+      nome,
+      apelido,
+      posicao,
+      capitao: tb.capitao,
+      isConvidado: !!tb.convidadoAvulsoId,
     };
+  };
+
+  const times = partida.times.map((t) => ({
+    id: t.id,
+    nome: t.nome,
+    cor: t.cor,
+    boleiros: t.boleiros.filter((tb) => !tb.reserva).map(mapBoleiro),
+    reservas: t.boleiros.filter((tb) => tb.reserva).map(mapBoleiro),
+  }));
+
+  return {
+    partida: {
+      id: partida.id,
+      dataHora: partida.dataHora,
+      status: partida.status,
+      localLivre: partida.localLivre,
+      estadio: partida.estadio?.nome ?? null,
+      numTimes: partida.numTimes,
+      boleirosPorTime: partida.boleirosPorTime,
+      grupo: partida.grupo,
+    },
+    times,
+  };
+}
+
+const escalacaoRoutes: FastifyPluginAsync = async (fastify) => {
+  /**
+   * GET /api/partidas/publico/:token/escalacao — sem auth (OG + página pública).
+   */
+  fastify.get('/api/partidas/publico/:token/escalacao', async (request, reply) => {
+    const params = tokenParam.safeParse(request.params);
+    if (!params.success) return badRequest(reply, params.error.flatten().fieldErrors);
+
+    const resolved = await resolveShareLink(fastify.prisma, params.data.token, 'escalacao');
+    if (!resolved.ok) {
+      if (resolved.reason === 'expired') return gone(reply);
+      return notFound(reply);
+    }
+
+    const data = await buildPublicEscalacaoPayload(fastify.prisma, resolved.partidaId);
+    if (!data) return notFound(reply);
+    return data;
   });
 
   /**

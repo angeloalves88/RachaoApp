@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { ensureShareLink } from '@/lib/share-links-actions';
 
 interface Props {
   partidaId: string;
@@ -20,17 +21,38 @@ interface Props {
 
 export function ShareModal({ partidaId, disabled }: Props) {
   const [open, setOpen] = useState(false);
-  const [formato, setFormato] = useState<'quadrado' | 'retrato'>('quadrado');
+  const [formato, setFormato] = useState<'horizontal' | 'compacto'>('horizontal');
   const [info, setInfo] = useState(true);
   const [logo, setLogo] = useState(true);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [loadingLink, setLoadingLink] = useState(false);
 
   const baseUrl =
     typeof window !== 'undefined'
       ? window.location.origin
       : (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000');
 
-  const publicPath = `/partidas/publico/${partidaId}/escalacao`;
-  const publicUrl = `${baseUrl}${publicPath}`;
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadingLink(true);
+    ensureShareLink(partidaId, 'escalacao')
+      .then((r) => {
+        if (!cancelled) setShareToken(r.token);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Não foi possível gerar o link.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLink(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, partidaId]);
+
+  const publicPath = shareToken ? `/partidas/publico/${shareToken}/escalacao` : '';
+  const publicUrl = shareToken ? `${baseUrl}${publicPath}` : '';
 
   function ogQuery() {
     const p = new URLSearchParams();
@@ -40,9 +62,10 @@ export function ShareModal({ partidaId, disabled }: Props) {
     return p.toString();
   }
 
-  const ogUrl = `${baseUrl}/api/og/escalacao/${partidaId}?${ogQuery()}`;
+  const ogUrl = shareToken ? `${baseUrl}/api/og/escalacao/${shareToken}?${ogQuery()}` : '';
 
   async function baixarImagem() {
+    if (!ogUrl) return;
     try {
       const res = await fetch(ogUrl);
       if (!res.ok) throw new Error('fetch');
@@ -60,6 +83,7 @@ export function ShareModal({ partidaId, disabled }: Props) {
   }
 
   async function compartilharNativo() {
+    if (!publicUrl || !ogUrl) return;
     try {
       const res = await fetch(ogUrl);
       if (!res.ok) throw new Error('fetch');
@@ -86,6 +110,7 @@ export function ShareModal({ partidaId, disabled }: Props) {
   }
 
   async function copiarLink() {
+    if (!publicUrl) return;
     try {
       await navigator.clipboard.writeText(publicUrl);
       toast.success('Link público copiado.');
@@ -111,21 +136,21 @@ export function ShareModal({ partidaId, disabled }: Props) {
               <input
                 type="radio"
                 name="fmt"
-                checked={formato === 'quadrado'}
-                onChange={() => setFormato('quadrado')}
+                checked={formato === 'horizontal'}
+                onChange={() => setFormato('horizontal')}
                 className="accent-primary"
               />
-              <span className="text-sm">Quadrado (1080×1080)</span>
+              <span className="text-sm">Horizontal (1920×1080)</span>
             </label>
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="radio"
                 name="fmt"
-                checked={formato === 'retrato'}
-                onChange={() => setFormato('retrato')}
+                checked={formato === 'compacto'}
+                onChange={() => setFormato('compacto')}
                 className="accent-primary"
               />
-              <span className="text-sm">Retrato 4:5 (1080×1350)</span>
+              <span className="text-sm">Compacto (1350×1080)</span>
             </label>
           </div>
           <div className="flex items-center gap-2">
@@ -141,17 +166,34 @@ export function ShareModal({ partidaId, disabled }: Props) {
             </Label>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <Button type="button" onClick={baixarImagem}>
+            <Button type="button" onClick={baixarImagem} disabled={!shareToken}>
               Baixar imagem
             </Button>
-            <Button type="button" variant="secondary" onClick={compartilharNativo}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={compartilharNativo}
+              disabled={!shareToken}
+            >
               Compartilhar
             </Button>
-            <Button type="button" variant="outline" onClick={copiarLink}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={copiarLink}
+              disabled={!shareToken || loadingLink}
+            >
               Copiar link público
             </Button>
           </div>
-          <p className="text-xs text-muted break-all">{publicUrl}</p>
+          {loadingLink ? (
+            <p className="text-xs text-muted">Gerando link…</p>
+          ) : publicUrl ? (
+            <p className="break-all text-xs text-muted">{publicUrl}</p>
+          ) : null}
+          <p className="text-xs text-muted">
+            O link expira 24 horas após o término da partida.
+          </p>
         </div>
       </DialogContent>
     </Dialog>

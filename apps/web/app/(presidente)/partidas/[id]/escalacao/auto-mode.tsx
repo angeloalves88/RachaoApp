@@ -13,6 +13,7 @@ import type {
   PresencaStripEstado,
 } from '@/lib/escalacao-actions';
 import { saveEscalacao, sortearEscalacao } from '@/lib/escalacao-actions';
+import { compareByPosicao, teamGridClass } from '@/lib/escalacao-ui';
 import { TimeColumn } from './time-column';
 
 export type AutoDraftTime = {
@@ -77,6 +78,7 @@ export function AutoMode({
         apelido: e?.apelido ?? null,
         posicao: e?.posicao ?? null,
         presencaStrip: strip,
+        isConvidado: e?.tipo === 'convidado_avulso',
       };
     },
     [elegiveis, presencaPorBoleiro],
@@ -243,9 +245,7 @@ export function AutoMode({
       ) : null}
 
       {showGrid ? (
-        <div
-          className={`grid gap-3 ${numTimes <= 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-2 lg:grid-cols-2'}`}
-        >
+        <div className={teamGridClass(numTimes)}>
           {draft.map((team, idx) => (
             <TimeColumn
               key={idx}
@@ -262,16 +262,13 @@ export function AutoMode({
                 )
               }
               capitaoConviteId={team.capitaoConviteId}
-              onCapitaoChange={(capitaoConviteId) =>
-                setDraft((d) =>
-                  d ? d.map((t, i) => (i === idx ? { ...t, capitaoConviteId } : t)) : d,
-                )
-              }
-              members={team.conviteIds.map((id) => ({ conviteId: id, ...nomePorConvite(id) }))}
-              reservasMembers={team.conviteIdsReservas.map((id) => ({
-                conviteId: id,
-                ...nomePorConvite(id),
-              }))}
+              onCapitaoChange={() => {}}
+              members={team.conviteIds
+                .map((id) => ({ conviteId: id, ...nomePorConvite(id) }))
+                .sort(compareByPosicao)}
+              reservasMembers={team.conviteIdsReservas
+                .map((id) => ({ conviteId: id, ...nomePorConvite(id) }))
+                .sort(compareByPosicao)}
               reservasPorTime={reservasPorTime}
               onRemove={(conviteId) => handleRemove(idx, conviteId)}
               onMoverReserva={(conviteId, paraReserva) =>
@@ -284,7 +281,7 @@ export function AutoMode({
           ))}
         </div>
       ) : readOnly && initialTimes.length > 0 ? (
-        <div className={`grid gap-3 sm:grid-cols-2`}>
+        <div className={teamGridClass(numTimes)}>
           {rowsFromServer(initialTimes).map((team, idx) => (
             <TimeColumn
               key={idx}
@@ -294,11 +291,12 @@ export function AutoMode({
               onCorChange={() => {}}
               capitaoConviteId={team.capitaoConviteId}
               onCapitaoChange={() => {}}
-              members={team.conviteIds.map((id) => ({ conviteId: id, ...nomePorConvite(id) }))}
-              reservasMembers={team.conviteIdsReservas.map((id) => ({
-                conviteId: id,
-                ...nomePorConvite(id),
-              }))}
+              members={team.conviteIds
+                .map((id) => ({ conviteId: id, ...nomePorConvite(id) }))
+                .sort(compareByPosicao)}
+              reservasMembers={team.conviteIdsReservas
+                .map((id) => ({ conviteId: id, ...nomePorConvite(id) }))
+                .sort(compareByPosicao)}
               reservasPorTime={reservasPorTime}
               onRemove={() => {}}
               readOnly

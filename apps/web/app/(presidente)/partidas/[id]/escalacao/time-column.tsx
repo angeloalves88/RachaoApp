@@ -1,9 +1,10 @@
 'use client';
 
-import { ArrowDown, ArrowUp, Crown } from 'lucide-react';
+import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { CorTime } from '@rachao/shared/zod';
 import { CORES_TIME } from '@rachao/shared/zod';
 import { Avatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { PresencaStripEstado } from '@/lib/escalacao-actions';
@@ -16,6 +17,7 @@ export interface TimeColumnMember {
   apelido: string | null;
   posicao?: string | null;
   presencaStrip?: PresencaStripEstado[] | null;
+  isConvidado?: boolean;
 }
 
 interface Props {
@@ -113,8 +115,6 @@ export function TimeColumn({
       <MemberList
         members={members}
         readOnly={readOnly}
-        capitaoConviteId={capitaoConviteId}
-        onCapitaoChange={onCapitaoChange}
         onRemove={onRemove}
         showRemove={showRemove}
         emptyLabel="Sem titulares"
@@ -137,8 +137,6 @@ export function TimeColumn({
           <MemberList
             members={reservasMembers}
             readOnly={readOnly}
-            capitaoConviteId={capitaoConviteId}
-            onCapitaoChange={onCapitaoChange}
             onRemove={onRemove}
             showRemove={showRemove}
             emptyLabel="Sem reservas"
@@ -161,8 +159,6 @@ export function TimeColumn({
 function MemberList({
   members,
   readOnly,
-  capitaoConviteId,
-  onCapitaoChange,
   onRemove,
   showRemove,
   emptyLabel,
@@ -170,8 +166,6 @@ function MemberList({
 }: {
   members: TimeColumnMember[];
   readOnly: boolean;
-  capitaoConviteId: string | null;
-  onCapitaoChange: (conviteId: string | null) => void;
   onRemove: (conviteId: string) => void;
   showRemove: boolean;
   emptyLabel: string;
@@ -200,6 +194,11 @@ function MemberList({
                   {m.posicao}
                 </span>
               ) : null}
+              {m.isConvidado ? (
+                <Badge variant="outline" className="px-1 py-0 text-[10px]">
+                  Convidado
+                </Badge>
+              ) : null}
               {m.presencaStrip ? <PresencaStrip estados={m.presencaStrip} /> : null}
             </div>
             {m.apelido ? <p className="truncate text-xs text-muted">{m.apelido}</p> : null}
@@ -218,32 +217,19 @@ function MemberList({
                   {moveButton.icon}
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant={capitaoConviteId === m.conviteId ? 'default' : 'ghost'}
-                size="icon"
-                className="h-8 w-8"
-                aria-label={capitaoConviteId === m.conviteId ? 'Capitão' : 'Marcar capitão'}
-                onClick={() =>
-                  onCapitaoChange(capitaoConviteId === m.conviteId ? null : m.conviteId)
-                }
-              >
-                <Crown className="h-4 w-4" />
-              </Button>
               {showRemove ? (
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
-                  className="h-8 px-2 text-xs text-destructive"
+                  size="icon"
+                  className="h-8 w-8 text-destructive"
+                  aria-label="Remover do time"
                   onClick={() => onRemove(m.conviteId)}
                 >
-                  Remover
+                  <Trash2 className="h-4 w-4" />
                 </Button>
               ) : null}
             </div>
-          ) : capitaoConviteId === m.conviteId ? (
-            <Crown className="h-4 w-4 shrink-0 text-primary" aria-label="Capitão" />
           ) : null}
         </li>
       ))}

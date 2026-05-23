@@ -20,16 +20,28 @@ export interface PublicEscalacaoResponse {
       apelido: string | null;
       posicao: string | null;
       capitao: boolean;
+      isConvidado?: boolean;
+    }>;
+    reservas: Array<{
+      nome: string;
+      apelido: string | null;
+      posicao: string | null;
+      capitao: boolean;
+      isConvidado?: boolean;
     }>;
   }>;
 }
 
+export type PublicFetchResult<T> = { status: 'ok'; data: T } | { status: 'expired' } | { status: 'not_found' };
+
 export async function fetchPublicEscalacao(
-  partidaId: string,
-): Promise<PublicEscalacaoResponse | null> {
-  const res = await fetch(`${API_URL}/api/partidas/publico/${partidaId}/escalacao`, {
+  token: string,
+): Promise<PublicFetchResult<PublicEscalacaoResponse>> {
+  const res = await fetch(`${API_URL}/api/partidas/publico/${token}/escalacao`, {
     cache: 'no-store',
   });
-  if (!res.ok) return null;
-  return res.json() as Promise<PublicEscalacaoResponse>;
+  if (res.status === 410) return { status: 'expired' };
+  if (!res.ok) return { status: 'not_found' };
+  const data = (await res.json()) as PublicEscalacaoResponse;
+  return { status: 'ok', data };
 }

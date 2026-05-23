@@ -12,8 +12,11 @@ import {
 } from '@rachao/shared/zod';
 import { STATUS_PARTIDA } from '@rachao/shared/enums';
 import { getGrupoAcesso } from '../lib/grupos.js';
-import { badRequest, forbidden, notFound } from '../lib/errors.js';
+import { badRequest, forbidden, gone, notFound } from '../lib/errors.js';
+import { consolidarAoVivoEstado, golsFinaisPorTime } from '../lib/aovivo-consolidar.js';
+import { parseAoVivoEstado } from '../lib/classificacao-resumo.js';
 import { agregarResumo } from '../lib/resumo.js';
+import { ensureShareLink, resolveShareLink, type ShareLinkTipo } from '../lib/share-links.js';
 import { buildWhatsAppLink, enviarConviteEmail } from '../lib/email.js';
 import {
   formatarDataPartidaBr,
@@ -29,6 +32,10 @@ import {
 } from '../lib/vaquinha.js';
 
 const idParamSchema = z.object({ id: z.string().min(1) });
+const tokenParamSchema = z.object({ token: z.string().min(1) });
+const shareLinkBodySchema = z.object({
+  tipo: z.enum(['escalacao', 'resumo']),
+});
 const partidaConviteParams = z.object({
   id: z.string().min(1),
   conviteId: z.string().min(1),
@@ -431,7 +438,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
           include: { usuario: { select: { id: true, nome: true, email: true, avatarUrl: true } } },
         },
         convites: {
-          orderBy: [{ status: 'asc' }, { posicaoEspera: 'asc' }, { criadoEm: 'asc' }],
+          orderBy: [{ criadoEm: 'asc' }],
           include: {
             boleiroGrupo: {
               select: { id: true, nome: true, apelido: true, posicao: true, celular: true, email: true },
@@ -1044,7 +1051,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
 
       const partida = await fastify.prisma.partida.findUnique({
         where: { id: params.data.id },
-        select: { id: true, grupoId: true, status: true },
+        select: { id: true, grupoId: true, status: true, aoVivoEstado: true },
       });
       if (!partida) return notFound(reply);
 
@@ -1059,15 +1066,14 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const updated = await fastify.prisma.$transaction(async (tx) => {
-        const gols = await tx.evento.groupBy({
-          by: ['timeId'],
-          where: { partidaId: partida.id, tipo: 'gol' },
-          _count: { _all: true },
+        const eventos = await tx.evento.findMany({
+          where: { partidaId: partida.id },
+          select: { tipo: true, timeId: true, boleiroId: true, dadosExtras: true },
         });
-        const golsPorTime = new Map<string, number>();
-        for (const g of gols) {
-          if (g.timeId) golsPorTime.set(g.timeId, g._count._all);
-        }
+        const aoVivoConsolidado = consolidarAoVivoEstado(partida.aoVivoEstado, eventos);
+        const parsed = parseAoVivoEstado(aoVivoConsolidado);
+        const golsPorTime = golsFinaisPorTime(eventos, parsed.resultados);
+
         const times = await tx.time.findMany({
           where: { partidaId: partida.id },
           select: { id: true },
@@ -1078,11 +1084,21 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
             data: { golsFinal: golsPorTime.get(t.id) ?? 0 },
           });
         }
-        return tx.partida.update({
+        const encerradaEm = new Date();
+        const updatedPartida = await tx.partida.update({
           where: { id: partida.id },
-          data: { status: 'encerrada' },
-          select: { id: true, status: true },
+          data: {
+            status: 'encerrada',
+            encerradaEm,
+            aoVivoEstado: aoVivoConsolidado as object,
+          },
+          select: { id: true, status: true, encerradaEm: true },
         });
+        await tx.partidaLinkPublico.updateMany({
+          where: { partidaId: partida.id },
+          data: { expiresAt: new Date(encerradaEm.getTime() + 24 * 60 * 60 * 1000) },
+        });
+        return updatedPartida;
       });
 
       return { ok: true, partida: updated };
@@ -1200,15 +1216,58 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   /**
-   * GET /api/partidas/publico/:id/resumo
+   * POST /api/partidas/:id/share-links — gera ou retorna link publico com token.
+   */
+  fastify.post(
+    '/api/partidas/:id/share-links',
+    { preHandler: fastify.requireAuth },
+    async (request, reply) => {
+      const auth = request.user!;
+      const params = idParamSchema.safeParse(request.params);
+      if (!params.success) return badRequest(reply, params.error.flatten().fieldErrors);
+      const body = shareLinkBodySchema.safeParse(request.body ?? {});
+      if (!body.success) return badRequest(reply, body.error.flatten().fieldErrors);
+
+      const partida = await fastify.prisma.partida.findUnique({
+        where: { id: params.data.id },
+        select: { grupoId: true, status: true },
+      });
+      if (!partida) return notFound(reply);
+      const acesso = await getGrupoAcesso(fastify.prisma, partida.grupoId, auth.sub);
+      if (!acesso) return forbidden(reply);
+
+      const tipo = body.data.tipo as ShareLinkTipo;
+      const link = await ensureShareLink(fastify.prisma, params.data.id, tipo);
+      const path =
+        tipo === 'escalacao'
+          ? `/partidas/publico/${link.token}/escalacao`
+          : `/partidas/publico/${link.token}/resumo`;
+
+      return {
+        token: link.token,
+        tipo,
+        expiresAt: link.expiresAt,
+        publicPath: path,
+      };
+    },
+  );
+
+  /**
+   * GET /api/partidas/publico/:token/resumo
    * Resumo publico (sem auth) — usado por OG e link compartilhavel.
    */
-  fastify.get('/api/partidas/publico/:id/resumo', async (request, reply) => {
-    const params = idParamSchema.safeParse(request.params);
+  fastify.get('/api/partidas/publico/:token/resumo', async (request, reply) => {
+    const params = tokenParamSchema.safeParse(request.params);
     if (!params.success) return badRequest(reply, params.error.flatten().fieldErrors);
 
+    const resolved = await resolveShareLink(fastify.prisma, params.data.token, 'resumo');
+    if (!resolved.ok) {
+      if (resolved.reason === 'expired') return gone(reply);
+      return notFound(reply);
+    }
+
     const partida = await fastify.prisma.partida.findUnique({
-      where: { id: params.data.id },
+      where: { id: resolved.partidaId },
       select: { status: true },
     });
     if (!partida) return notFound(reply);
@@ -1216,7 +1275,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
       return notFound(reply);
     }
 
-    const data = await agregarResumo(fastify.prisma, params.data.id);
+    const data = await agregarResumo(fastify.prisma, resolved.partidaId);
     if (!data) return notFound(reply);
     return data;
   });

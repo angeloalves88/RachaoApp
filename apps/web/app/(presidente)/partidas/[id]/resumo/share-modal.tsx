@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { ensureShareLink } from '@/lib/share-links-actions';
 
 interface Props {
   partidaId: string;
@@ -21,17 +22,38 @@ interface Props {
 
 export function ShareResumoModal({ partidaId, disabled }: Props) {
   const [open, setOpen] = useState(false);
-  const [formato, setFormato] = useState<'quadrado' | 'retrato'>('quadrado');
+  const [formato, setFormato] = useState<'quadrado' | 'retrato'>('retrato');
   const [info, setInfo] = useState(true);
   const [logo, setLogo] = useState(true);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [loadingLink, setLoadingLink] = useState(false);
 
   const baseUrl =
     typeof window !== 'undefined'
       ? window.location.origin
       : (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000');
 
-  const publicPath = `/partidas/publico/${partidaId}/resumo`;
-  const publicUrl = `${baseUrl}${publicPath}`;
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadingLink(true);
+    ensureShareLink(partidaId, 'resumo')
+      .then((r) => {
+        if (!cancelled) setShareToken(r.token);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Não foi possível gerar o link.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLink(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, partidaId]);
+
+  const publicPath = shareToken ? `/partidas/publico/${shareToken}/resumo` : '';
+  const publicUrl = shareToken ? `${baseUrl}${publicPath}` : '';
 
   function ogQuery(): string {
     const p = new URLSearchParams();
@@ -41,9 +63,10 @@ export function ShareResumoModal({ partidaId, disabled }: Props) {
     return p.toString();
   }
 
-  const ogUrl = `${baseUrl}/api/og/resumo/${partidaId}?${ogQuery()}`;
+  const ogUrl = shareToken ? `${baseUrl}/api/og/resumo/${shareToken}?${ogQuery()}` : '';
 
   async function baixarImagem() {
+    if (!ogUrl) return;
     try {
       const res = await fetch(ogUrl);
       if (!res.ok) throw new Error('fetch');
@@ -61,6 +84,7 @@ export function ShareResumoModal({ partidaId, disabled }: Props) {
   }
 
   async function compartilharNativo() {
+    if (!publicUrl || !ogUrl) return;
     try {
       const res = await fetch(ogUrl);
       if (!res.ok) throw new Error('fetch');
@@ -87,6 +111,7 @@ export function ShareResumoModal({ partidaId, disabled }: Props) {
   }
 
   async function copiarLink() {
+    if (!publicUrl) return;
     try {
       await navigator.clipboard.writeText(publicUrl);
       toast.success('Link público copiado.');
@@ -108,6 +133,10 @@ export function ShareResumoModal({ partidaId, disabled }: Props) {
           <DialogTitle>Compartilhar resumo</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-1">
+          <p className="text-sm text-muted">
+            Link público com placar, classificação, artilharia e estatísticas. A imagem baixada
+            reúne tudo em um cartaz único.
+          </p>
           <div className="flex flex-wrap gap-4">
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -127,7 +156,7 @@ export function ShareResumoModal({ partidaId, disabled }: Props) {
                 onChange={() => setFormato('retrato')}
                 className="accent-primary"
               />
-              <span className="text-sm">Retrato 4:5 (1080×1350)</span>
+              <span className="text-sm">Retrato completo (1080×1920)</span>
             </label>
           </div>
           <div className="flex items-center gap-2">
@@ -143,17 +172,34 @@ export function ShareResumoModal({ partidaId, disabled }: Props) {
             </Label>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <Button type="button" onClick={baixarImagem}>
+            <Button type="button" onClick={baixarImagem} disabled={!shareToken}>
               Baixar imagem
             </Button>
-            <Button type="button" variant="secondary" onClick={compartilharNativo}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={compartilharNativo}
+              disabled={!shareToken}
+            >
               Compartilhar
             </Button>
-            <Button type="button" variant="outline" onClick={copiarLink}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={copiarLink}
+              disabled={!shareToken || loadingLink}
+            >
               Copiar link público
             </Button>
           </div>
-          <p className="break-all text-xs text-muted">{publicUrl}</p>
+          {loadingLink ? (
+            <p className="text-xs text-muted">Gerando link…</p>
+          ) : publicUrl ? (
+            <p className="break-all text-xs text-muted">{publicUrl}</p>
+          ) : null}
+          <p className="text-xs text-muted">
+            O link expira 24 horas após o término da partida.
+          </p>
         </div>
       </DialogContent>
     </Dialog>

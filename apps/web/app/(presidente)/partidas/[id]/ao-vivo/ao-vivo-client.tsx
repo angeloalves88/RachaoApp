@@ -369,6 +369,7 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
   async function handleEncerrar() {
     setEncerrando(true);
     try {
+      await tryFlush();
       await encerrarPartida(partida.id);
       clearActiveSession();
       toast.success('Partida encerrada!');

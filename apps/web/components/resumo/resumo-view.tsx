@@ -20,9 +20,15 @@ const TIPO_LABEL: Record<string, { icon: string; label: string; color?: string }
 };
 
 export function ResumoView({ data, isPublic = false }: Props) {
-  const ordemTimes = [...data.times].sort((a, b) => b.golsFinal - a.golsFinal);
-  const placar = data.times.map((t) => t.golsFinal);
-  const isEmpate = placar.every((g) => g === placar[0]);
+  const temTorneio = (data.classificacao ?? []).some((r) => r.j > 0);
+  const usarPontos = temTorneio || data.times.some((t) => (t.pontosFinal ?? 0) > 0);
+
+  const ordemTimes = [...data.times].sort((a, b) => {
+    if (usarPontos) return (b.pontosFinal ?? 0) - (a.pontosFinal ?? 0);
+    return b.golsFinal - a.golsFinal;
+  });
+  const placar = data.times.map((t) => (usarPontos ? (t.pontosFinal ?? 0) : t.golsFinal));
+  const isEmpate = placar.every((v) => v === placar[0]);
   const vencedor = isEmpate ? null : ordemTimes[0];
 
   return (
@@ -43,7 +49,9 @@ export function ResumoView({ data, isPublic = false }: Props) {
         aria-label="Placar final"
       >
         <div className="flex items-center justify-between bg-surface-2 px-4 py-2 text-xs">
-          <span className="font-semibold uppercase tracking-wide text-muted">Placar final</span>
+          <span className="font-semibold uppercase tracking-wide text-muted">
+            {usarPontos ? 'Pontuação final' : 'Placar final'}
+          </span>
           {vencedor ? (
             <span className="font-semibold text-primary">🏆 {vencedor.nome}</span>
           ) : (
@@ -71,13 +79,77 @@ export function ResumoView({ data, isPublic = false }: Props) {
                   {t.nome}
                 </span>
                 <span className="font-display text-5xl font-bold tabular-nums sm:text-6xl">
-                  {t.golsFinal}
+                  {usarPontos ? (t.pontosFinal ?? 0) : t.golsFinal}
+                </span>
+                <span className="text-[10px] uppercase tracking-wide text-muted">
+                  {usarPontos ? 'pts' : 'gols'}
                 </span>
               </div>
             );
           })}
         </div>
       </section>
+
+      {/* Classificação */}
+      {(data.classificacao ?? []).length > 0 ? (
+        <section className="space-y-2">
+          <h2 className="font-display text-lg font-semibold">Classificação</h2>
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full min-w-[28rem] text-left text-xs">
+              <thead>
+                <tr className="border-b border-border bg-surface-2 text-muted">
+                  <th className="px-2 py-2 font-semibold">#</th>
+                  <th className="px-2 py-2 font-semibold">Time</th>
+                  <th className="px-2 py-2 text-center font-semibold">Pts</th>
+                  <th className="px-2 py-2 text-center font-semibold">V</th>
+                  <th className="px-2 py-2 text-center font-semibold">E</th>
+                  <th className="px-2 py-2 text-center font-semibold">D</th>
+                  <th className="px-2 py-2 text-center font-semibold">J</th>
+                  <th className="px-2 py-2 text-center font-semibold">Gols</th>
+                  <th className="px-2 py-2 text-center font-semibold">SG</th>
+                  <th className="px-2 py-2 text-center font-semibold">Cartões</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data.classificacao ?? []).map((row, i) => {
+                  const cor = COR_HEX[(row.cor as CorTime) ?? 'blue'] ?? '#3b82f6';
+                  const cartoes =
+                    row.amarelos + row.vermelhos + row.azuis > 0
+                      ? `${row.amarelos > 0 ? `🟨${row.amarelos}` : ''}${row.vermelhos > 0 ? ` 🟥${row.vermelhos}` : ''}${row.azuis > 0 ? ` 🟦${row.azuis}` : ''}`.trim()
+                      : '—';
+                  return (
+                    <tr key={row.timeId} className="border-b border-border last:border-0">
+                      <td className="px-2 py-2 tabular-nums text-muted">{i + 1}</td>
+                      <td className="px-2 py-2">
+                        <span className="inline-flex items-center gap-1.5 font-medium">
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: cor }}
+                            aria-hidden
+                          />
+                          {row.nome}
+                        </span>
+                      </td>
+                      <td className="px-2 py-2 text-center font-bold tabular-nums">{row.pts}</td>
+                      <td className="px-2 py-2 text-center tabular-nums">{row.v}</td>
+                      <td className="px-2 py-2 text-center tabular-nums">{row.e}</td>
+                      <td className="px-2 py-2 text-center tabular-nums">{row.d}</td>
+                      <td className="px-2 py-2 text-center tabular-nums">{row.j}</td>
+                      <td className="px-2 py-2 text-center tabular-nums">
+                        {row.gp}:{row.gc}
+                      </td>
+                      <td className="px-2 py-2 text-center tabular-nums">{row.sg}</td>
+                      <td className="px-2 py-2 text-center whitespace-nowrap text-xs">
+                        {cartoes}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       {/* Artilharia */}
       {data.artilharia.length > 0 ? (

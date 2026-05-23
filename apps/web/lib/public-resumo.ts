@@ -5,6 +5,7 @@ export interface ResumoTimeApi {
   nome: string;
   cor: string;
   golsFinal: number;
+  pontosFinal: number;
 }
 
 export interface ResumoArtilheiroApi {
@@ -43,6 +44,23 @@ export interface ResumoEstatisticaApi {
   azuis: number;
 }
 
+export interface ClassificacaoResumoApi {
+  timeId: string;
+  nome: string;
+  cor: string;
+  j: number;
+  v: number;
+  e: number;
+  d: number;
+  pts: number;
+  gp: number;
+  gc: number;
+  sg: number;
+  amarelos: number;
+  vermelhos: number;
+  azuis: number;
+}
+
 export interface ResumoApi {
   partida: {
     id: string;
@@ -65,12 +83,17 @@ export interface ResumoApi {
     totalAzuis: number;
     totalSubs: number;
   };
+  classificacao: ClassificacaoResumoApi[];
 }
 
-export async function fetchPublicResumo(partidaId: string): Promise<ResumoApi | null> {
-  const res = await fetch(`${API_URL}/api/partidas/publico/${partidaId}/resumo`, {
+export type PublicFetchResult<T> = { status: 'ok'; data: T } | { status: 'expired' } | { status: 'not_found' };
+
+export async function fetchPublicResumo(token: string): Promise<PublicFetchResult<ResumoApi>> {
+  const res = await fetch(`${API_URL}/api/partidas/publico/${token}/resumo`, {
     cache: 'no-store',
   });
-  if (!res.ok) return null;
-  return res.json() as Promise<ResumoApi>;
+  if (res.status === 410) return { status: 'expired' };
+  if (!res.ok) return { status: 'not_found' };
+  const data = (await res.json()) as ResumoApi;
+  return { status: 'ok', data };
 }

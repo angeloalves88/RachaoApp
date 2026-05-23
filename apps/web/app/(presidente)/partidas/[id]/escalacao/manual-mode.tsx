@@ -18,11 +18,12 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Crown, Lock } from 'lucide-react';
+import { Lock, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { CorTime } from '@rachao/shared/zod';
 import { CORES_TIME, limiteReservasPorTime, reservasIlimitadasPorTime } from '@rachao/shared/zod';
 import { Avatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type {
@@ -31,7 +32,7 @@ import type {
   PresencaStripEstado,
 } from '@/lib/escalacao-actions';
 import { saveEscalacao } from '@/lib/escalacao-actions';
-import { COR_HEX } from '@/lib/escalacao-ui';
+import { COR_HEX, sortConviteIds, teamGridClass } from '@/lib/escalacao-ui';
 import { PresencaStrip } from './presenca-strip';
 
 type TimeMeta = { nome: string; cor: CorTime; capitaoConviteId: string | null };
@@ -81,9 +82,12 @@ function buildInitial(
     }
   });
 
+  const poolIds: string[] = [];
   for (const e of elegiveis) {
-    if (!inTeam.has(e.conviteId)) (columns[POOL_ID] ??= []).push(e.conviteId);
+    if (!inTeam.has(e.conviteId)) poolIds.push(e.conviteId);
   }
+  const elegMapTmp = new Map(elegiveis.map((e) => [e.conviteId, e]));
+  columns[POOL_ID] = sortConviteIds(poolIds, elegMapTmp);
 
   const timeMeta: TimeMeta[] = Array.from({ length: numTimes }, (_, i) => {
     const t = times[i];
@@ -102,9 +106,8 @@ function SortablePlayer({
   nome,
   apelido,
   posicao,
+  isConvidado,
   presencaStrip,
-  capitao,
-  onCapitao,
   onRemove,
   variant = 'team',
   teamAssignButtons,
@@ -113,9 +116,8 @@ function SortablePlayer({
   nome: string;
   apelido: string | null;
   posicao?: string | null;
+  isConvidado?: boolean;
   presencaStrip?: PresencaStripEstado[] | null;
-  capitao: boolean;
-  onCapitao: () => void;
   onRemove: () => void;
   variant?: 'pool' | 'team';
   teamAssignButtons?: ReactNode;
@@ -150,34 +152,27 @@ function SortablePlayer({
               {posicao}
             </span>
           ) : null}
+          {isConvidado ? (
+            <Badge variant="outline" className="px-1 py-0 text-[10px]">
+              Convidado
+            </Badge>
+          ) : null}
           {presencaStrip ? <PresencaStrip estados={presencaStrip} /> : null}
         </div>
         {apelido ? <p className="truncate text-xs text-muted">{apelido}</p> : null}
       </div>
       {variant === 'team' ? (
-        <>
-          <Button
-            type="button"
-            variant={capitao ? 'default' : 'ghost'}
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            aria-label={capitao ? 'Capitão' : 'Marcar capitão'}
-            onClick={onCapitao}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <Crown className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 px-2 text-xs text-destructive"
-            onClick={onRemove}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            Remover
-          </Button>
-        </>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-destructive"
+          aria-label="Remover do time"
+          onClick={onRemove}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       ) : null}
       {variant === 'pool' && teamAssignButtons ? (
         <div className="flex shrink-0 flex-wrap gap-0.5" onPointerDown={(e) => e.stopPropagation()}>
@@ -189,36 +184,24 @@ function SortablePlayer({
 }
 
 function TeamQuickAssign({
-  numTimes,
-  boleirosPorTime,
+  timeMeta,
   onAssign,
 }: {
-  numTimes: number;
-  boleirosPorTime: number;
-  onAssign: (teamIdx: number, reserva: boolean) => void;
+  timeMeta: TimeMeta[];
+  onAssign: (teamIdx: number) => void;
 }) {
   return (
     <>
-      {Array.from({ length: numTimes }, (_, i) => (
-        <span key={i} className="inline-flex gap-0.5">
-          <button
-            type="button"
-            disabled={boleirosPorTime === 0}
-            title={boleirosPorTime === 0 ? 'Sem titulares neste formato' : `Titular — ${i + 1}`}
-            onClick={() => onAssign(i, false)}
-            className="rounded border border-border px-1 py-0.5 text-[10px] font-bold disabled:opacity-30"
-          >
-            T{i + 1}
-          </button>
-          <button
-            type="button"
-            title={`Reserva — ${i + 1}`}
-            onClick={() => onAssign(i, true)}
-            className="rounded border border-dashed border-border px-1 py-0.5 text-[10px] font-bold"
-          >
-            R{i + 1}
-          </button>
-        </span>
+      {timeMeta.map((meta, i) => (
+        <button
+          key={i}
+          type="button"
+          title={meta.nome}
+          aria-label={`Escalar em ${meta.nome}`}
+          onClick={() => onAssign(i)}
+          className="h-7 w-7 shrink-0 rounded-full border-2 border-border transition-transform hover:scale-110"
+          style={{ backgroundColor: COR_HEX[meta.cor] }}
+        />
       ))}
     </>
   );
@@ -348,7 +331,23 @@ export function ManualMode({
     const overCont = overContainerId(over.id);
     if (!activeContainer || !overCont) return;
 
-    if (activeContainer === overCont) {
+    let targetContainer = overCont;
+    if (overCont !== POOL_ID && isTeamContainer(overCont)) {
+      const titCount = (columns[overCont] ?? []).length;
+      if (boleirosPorTime > 0 && titCount >= boleirosPorTime && !columns[overCont]?.includes(aId)) {
+        const teamIdx = Number(overCont.replace('col:time:', ''));
+        const rid = reservaId(teamIdx);
+        const resCount = (columns[rid] ?? []).length;
+        const resLimit = reservasIlimitadas ? Number.MAX_SAFE_INTEGER : limiteReservas;
+        if (resCount < resLimit) targetContainer = rid;
+        else {
+          toast.error('Time completo');
+          return;
+        }
+      }
+    }
+
+    if (activeContainer === targetContainer) {
       const items = columns[activeContainer] ?? [];
       const oldIndex = items.indexOf(aId);
       const overStr = String(over.id);
@@ -370,32 +369,32 @@ export function ManualMode({
       return;
     }
 
-    if (overCont !== POOL_ID) {
-      const dest = columns[overCont] ?? [];
-      if (isTeamContainer(overCont) && boleirosPorTime === 0) {
-        toast.error('Neste formato use a zona de reservas (R1, R2…)');
+    if (targetContainer !== POOL_ID) {
+      const dest = columns[targetContainer] ?? [];
+      if (isTeamContainer(targetContainer) && boleirosPorTime === 0) {
+        toast.error('Neste formato use a zona de reservas');
         return;
       }
-      const limit = isTeamContainer(overCont)
+      const limit = isTeamContainer(targetContainer)
         ? boleirosPorTime
         : boleirosPorTime === 0
           ? Number.MAX_SAFE_INTEGER
           : limiteReservas;
       if (dest.length >= limit && !dest.includes(aId)) {
-        toast.error(isTeamContainer(overCont) ? 'Time completo' : 'Reservas completas');
+        toast.error(isTeamContainer(targetContainer) ? 'Time completo' : 'Reservas completas');
         return;
       }
     }
 
     setState((prev) => {
       const src = [...(prev.columns[activeContainer] ?? [])];
-      const dst = [...(prev.columns[overCont] ?? [])];
+      const dst = [...(prev.columns[targetContainer] ?? [])];
       const from = src.indexOf(aId);
       if (from < 0) return prev;
       src.splice(from, 1);
       const overStr = String(over.id);
       let insertAt = dst.length;
-      if (overStr !== overCont) {
+      if (overStr !== targetContainer) {
         const idx = dst.indexOf(overStr);
         if (idx >= 0) insertAt = idx;
       }
@@ -403,7 +402,7 @@ export function ManualMode({
       const nextCols = {
         ...prev.columns,
         [activeContainer]: src,
-        [overCont]: dst,
+        [targetContainer]: dst,
       };
       return {
         columns: nextCols,
@@ -426,6 +425,10 @@ export function ManualMode({
       : numTimes * (boleirosPorTime + reservasPorTime);
 
   const poolFree = (columns[POOL_ID] ?? []).filter((id) => !blockedSet.has(id));
+  const poolFreeSorted = useMemo(
+    () => sortConviteIds(poolFree, elegMap),
+    [poolFree, elegMap],
+  );
   const poolBlocked = (columns[POOL_ID] ?? []).filter((id) => blockedSet.has(id));
 
   function removeToPool(containerId: string, conviteId: string) {
@@ -437,23 +440,42 @@ export function ManualMode({
     });
   }
 
-  const assignPlayer = useCallback(
-    (conviteId: string, teamIdx: number, asReserva: boolean) => {
-      const target = asReserva ? reservaId(teamIdx) : teamId(teamIdx);
-      if (!asReserva && boleirosPorTime === 0) return;
+  const assignPlayerToTeam = useCallback(
+    (conviteId: string, teamIdx: number) => {
       setState((s) => {
         const next = { ...s.columns };
         for (const key of Object.keys(next)) {
           next[key] = (next[key] ?? []).filter((id) => id !== conviteId);
         }
-        const dest = [...(next[target] ?? [])];
-        const limit = asReserva
-          ? boleirosPorTime === 0
-            ? Number.MAX_SAFE_INTEGER
-            : limiteReservas
-          : boleirosPorTime;
+        const titKey = teamId(teamIdx);
+        const resKey = reservaId(teamIdx);
+        const tit = [...(next[titKey] ?? [])];
+        const res = [...(next[resKey] ?? [])];
+
+        let target = titKey;
+        if (boleirosPorTime === 0) {
+          target = resKey;
+        } else if (tit.length >= boleirosPorTime && !tit.includes(conviteId)) {
+          const resLimit = reservasIlimitadas ? Number.MAX_SAFE_INTEGER : limiteReservas;
+          if (res.length >= resLimit && !res.includes(conviteId)) {
+            toast.error('Time completo');
+            return s;
+          }
+          target = resKey;
+        } else if (tit.length >= boleirosPorTime) {
+          toast.error('Time completo');
+          return s;
+        }
+
+        const dest = target === titKey ? tit : res;
+        const limit =
+          target === titKey
+            ? boleirosPorTime
+            : reservasIlimitadas
+              ? Number.MAX_SAFE_INTEGER
+              : limiteReservas;
         if (dest.length >= limit && !dest.includes(conviteId)) {
-          toast.error(asReserva ? 'Reservas completas neste time' : 'Time completo');
+          toast.error(target === titKey ? 'Time completo' : 'Reservas completas neste time');
           return s;
         }
         if (!dest.includes(conviteId)) dest.push(conviteId);
@@ -462,7 +484,7 @@ export function ManualMode({
         return { columns: next, timeMeta: normalizeMeta(next, s.timeMeta, numTimes) };
       });
     },
-    [boleirosPorTime, limiteReservas, numTimes],
+    [boleirosPorTime, limiteReservas, reservasIlimitadas, numTimes],
   );
 
   async function confirmar() {
@@ -525,7 +547,7 @@ export function ManualMode({
 
   if (readOnly) {
     return (
-      <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start">
+      <div className={teamGridClass(numTimes)}>
         {Array.from({ length: numTimes }, (_, i) => {
           const ids = ro.columns[teamId(i)] ?? [];
           const idsRes = ro.columns[reservaId(i)] ?? [];
@@ -554,74 +576,17 @@ export function ManualMode({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <DroppableCol id={POOL_ID} label="Disponíveis">
-          <div className="space-y-2">
-            {poolBlocked.map((id) => {
-              const e = elegMap.get(id)!;
-              return (
-                <div
-                  key={id}
-                  className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-error-highlight/40 px-2 py-1.5 opacity-90"
-                >
-                  <Lock className="h-4 w-4 shrink-0 text-destructive" aria-hidden />
-                  <Avatar name={e.nome} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{e.nome}</p>
-                    <p className="text-xs text-muted">Bloqueado</p>
-                  </div>
-                </div>
-              );
-            })}
-            <SortableContext items={poolFree} strategy={verticalListSortingStrategy}>
-              {poolFree.map((id) => {
-                const e = elegMap.get(id)!;
-                return (
-                  <div key={id} className="mb-2">
-                    <SortablePlayer
-                      id={id}
-                      nome={e.nome}
-                      apelido={e.apelido}
-                      posicao={e.posicao}
-                      presencaStrip={stripPorConvite(id)}
-                      capitao={false}
-                      onCapitao={() => {}}
-                      onRemove={() => {}}
-                      variant="pool"
-                      teamAssignButtons={
-                        <TeamQuickAssign
-                          numTimes={numTimes}
-                          boleirosPorTime={boleirosPorTime}
-                          onAssign={(idx, res) => assignPlayer(id, idx, res)}
-                        />
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </SortableContext>
-          </div>
-        </DroppableCol>
-
-        <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start">
+        <div className={teamGridClass(numTimes)}>
           {Array.from({ length: numTimes }, (_, i) => {
             const cid = teamId(i);
             const rid = reservaId(i);
-            const titIds = columns[cid] ?? [];
-            const resIds = columns[rid] ?? [];
+            const titIds = sortConviteIds(columns[cid] ?? [], elegMap);
+            const resIds = sortConviteIds(columns[rid] ?? [], elegMap);
             const meta = timeMeta[i]!;
-            const toggleCapitao = (id: string) =>
-              setState((s) => ({
-                ...s,
-                timeMeta: s.timeMeta.map((m, j) =>
-                  j === i
-                    ? { ...m, capitaoConviteId: m.capitaoConviteId === id ? null : id }
-                    : m,
-                ),
-              }));
             return (
               <div
                 key={cid}
-                className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-surface-2 p-2 lg:min-w-[240px] lg:flex-1"
+                className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-surface-2 p-2"
                 style={{ borderTopWidth: 4, borderTopColor: COR_HEX[meta.cor] }}
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -685,9 +650,8 @@ export function ManualMode({
                             nome={e.nome}
                             apelido={e.apelido}
                             posicao={e.posicao}
+                            isConvidado={e.tipo === 'convidado_avulso'}
                             presencaStrip={stripPorConvite(id)}
-                            capitao={meta.capitaoConviteId === id}
-                            onCapitao={() => toggleCapitao(id)}
                             onRemove={() => removeToPool(cid, id)}
                           />
                         );
@@ -718,9 +682,8 @@ export function ManualMode({
                                 nome={e.nome}
                                 apelido={e.apelido}
                                 posicao={e.posicao}
+                                isConvidado={e.tipo === 'convidado_avulso'}
                                 presencaStrip={stripPorConvite(id)}
-                                capitao={meta.capitaoConviteId === id}
-                                onCapitao={() => toggleCapitao(id)}
                                 onRemove={() => removeToPool(rid, id)}
                               />
                             );
@@ -734,6 +697,52 @@ export function ManualMode({
             );
           })}
         </div>
+
+        <DroppableCol id={POOL_ID} label="Jogadores confirmados">
+          <div className="space-y-2">
+            {poolBlocked.map((id) => {
+              const e = elegMap.get(id)!;
+              return (
+                <div
+                  key={id}
+                  className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-error-highlight/40 px-2 py-1.5 opacity-90"
+                >
+                  <Lock className="h-4 w-4 shrink-0 text-destructive" aria-hidden />
+                  <Avatar name={e.nome} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{e.nome}</p>
+                    <p className="text-xs text-muted">Bloqueado</p>
+                  </div>
+                </div>
+              );
+            })}
+            <SortableContext items={poolFreeSorted} strategy={verticalListSortingStrategy}>
+              {poolFreeSorted.map((id) => {
+                const e = elegMap.get(id)!;
+                return (
+                  <div key={id} className="mb-2">
+                    <SortablePlayer
+                      id={id}
+                      nome={e.nome}
+                      apelido={e.apelido}
+                      posicao={e.posicao}
+                      isConvidado={e.tipo === 'convidado_avulso'}
+                      presencaStrip={stripPorConvite(id)}
+                      onRemove={() => {}}
+                      variant="pool"
+                      teamAssignButtons={
+                        <TeamQuickAssign
+                          timeMeta={timeMeta}
+                          onAssign={(idx) => assignPlayerToTeam(id, idx)}
+                        />
+                      }
+                    />
+                  </div>
+                );
+              })}
+            </SortableContext>
+          </div>
+        </DroppableCol>
 
         <DragOverlay>
           {activeEleg ? (
@@ -844,7 +853,7 @@ function ReadOnlyTeam({
           ) : null}
         </span>
         {capitao === id ? (
-          <Crown className="h-4 w-4 text-primary" aria-label="Capitão" />
+          <span className="shrink-0 text-[10px] font-medium text-muted">Capitão</span>
         ) : null}
       </li>
     );

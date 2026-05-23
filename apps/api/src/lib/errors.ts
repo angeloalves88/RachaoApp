@@ -18,3 +18,7 @@ export function forbidden(reply: FastifyReply, message = 'Acesso negado') {
 export function conflict(reply: FastifyReply, message = 'Conflito') {
   return reply.code(409).send({ error: 'Conflict', message });
 }
+
+export function gone(reply: FastifyReply, message = 'Link expirado') {
+  return reply.code(410).send({ error: 'Gone', message });
+}

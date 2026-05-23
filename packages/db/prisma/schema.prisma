@@ -374,6 +374,9 @@ model Partida {
   /// Estado ao-vivo: jogoAtual, confronto { timeAId, timeBId }, etc.
   aoVivoEstado Json?
 
+  /// Preenchido ao encerrar a partida (usado para expirar links publicos).
+  encerradaEm     DateTime?
+
   criadoEm        DateTime @default(now())
   atualizadoEm    DateTime @updatedAt
 
@@ -386,11 +389,28 @@ model Partida {
   eventos             Evento[]
   vaquinha            Vaquinha?
   solicitacaoVinculo  SolicitacaoVinculo?
+  linksPublicos       PartidaLinkPublico[]
 
   @@index([grupoId, dataHora])
   @@index([estadioId, dataHora])
   @@index([status])
   @@index([serieId])
+}
+
+/// Link publico compartilhavel (escalacao / resumo) com token UUID.
+model PartidaLinkPublico {
+  id         String    @id @default(cuid())
+  partidaId  String
+  /// escalacao | resumo
+  tipo       String
+  token      String    @unique
+  expiresAt  DateTime?
+  criadoEm   DateTime  @default(now())
+
+  partida Partida @relation(fields: [partidaId], references: [id], onDelete: Cascade)
+
+  @@unique([partidaId, tipo])
+  @@index([token])
 }
 
 // Tabela de juncao Partida <-> Usuario (multi-presidente da partida)

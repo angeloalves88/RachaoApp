@@ -14,6 +14,8 @@ const PUBLIC_ROUTES = [
 const PUBLIC_PREFIXES = [
   '/confirmar/', // /confirmar/[token] - Boleiro confirma sem login
   '/estadios/', // /estadios/[slug] - Pagina publica do estadio
+  '/partidas/publico/', // escalacao e resumo compartilhados
+  '/api/og/', // imagens PNG para compartilhar (fetch + crawlers)
 ];
 
 function isPublicPath(pathname: string): boolean {

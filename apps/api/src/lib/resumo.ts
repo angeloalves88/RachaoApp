@@ -4,12 +4,23 @@
  * artilharia (top 5 boleiros por gols) e timeline cronológica.
  */
 import type { PrismaClient } from '@rachao/db';
+import {
+  calcularClassificacaoResumo,
+  cartoesPorTimeFromEventos,
+  golsTotaisFromResultados,
+  mergeEstatisticasTimes,
+  parseAoVivoEstado,
+  type ClassificacaoResumoRow,
+} from './classificacao-resumo.js';
 
 export interface ResumoTime {
   id: string;
   nome: string;
   cor: string;
+  /** Gols totais (eventos + sub-jogos). */
   golsFinal: number;
+  /** Pontos na classificação do torneio (V/E/D). */
+  pontosFinal: number;
 }
 
 export interface ResumoArtilheiro {
@@ -48,6 +59,8 @@ export interface ResumoEstatistica {
   azuis: number;
 }
 
+export type { ClassificacaoResumoRow };
+
 export interface ResumoData {
   partida: {
     id: string;
@@ -70,6 +83,7 @@ export interface ResumoData {
     totalAzuis: number;
     totalSubs: number;
   };
+  classificacao: ClassificacaoResumoRow[];
 }
 
 export async function agregarResumo(
@@ -142,11 +156,30 @@ export async function agregarResumo(
     }
   }
 
+  const aoVivo = parseAoVivoEstado(partida.aoVivoEstado);
+  const golsFromResultados = golsTotaisFromResultados(aoVivo.resultados);
+  const estatisticasTimes = mergeEstatisticasTimes(
+    aoVivo.estatisticasTimes,
+    cartoesPorTimeFromEventos(partida.eventos),
+  );
+
+  const classificacao = calcularClassificacaoResumo(
+    partida.times.map((t) => ({ id: t.id, nome: t.nome, cor: t.cor })),
+    aoVivo.resultados,
+    estatisticasTimes,
+  );
+  const ptsPorTime = new Map(classificacao.map((r) => [r.timeId, r.pts]));
+
   const times: ResumoTime[] = partida.times.map((t) => ({
     id: t.id,
     nome: t.nome,
     cor: t.cor,
-    golsFinal: t.golsFinal ?? golsPorTime.get(t.id) ?? 0,
+    golsFinal: Math.max(
+      t.golsFinal ?? 0,
+      golsPorTime.get(t.id) ?? 0,
+      golsFromResultados.get(t.id) ?? 0,
+    ),
+    pontosFinal: ptsPorTime.get(t.id) ?? 0,
   }));
 
   // Estatísticas individuais
@@ -224,10 +257,57 @@ export async function agregarResumo(
     dadosExtras: ev.dadosExtras,
   }));
 
+  for (const a of aoVivo.artilharia ?? []) {
+    const s = statsFor(a.boleiroId);
+    if (a.gols > s.gols) s.gols = a.gols;
+    const b = boleiros.get(a.boleiroId);
+    if (b && a.boleiroNome) s.nome = a.boleiroNome;
+  }
+
   const estatisticas = Array.from(stats.values()).sort((a, b) => {
     if (b.gols !== a.gols) return b.gols - a.gols;
     return a.nome.localeCompare(b.nome);
   });
+
+  const artilhariaMerged: ResumoArtilheiro[] = (() => {
+    const fromStats = Array.from(stats.values())
+      .filter((s) => s.gols > 0)
+      .map((s) => {
+        const b = boleiros.get(s.boleiroId);
+        return {
+          boleiroId: s.boleiroId,
+          nome: s.nome,
+          apelido: s.apelido,
+          posicao: b?.posicao ?? null,
+          timeId: s.timeId,
+          timeNome: s.timeNome,
+          timeCor: b?.timeCor ?? null,
+          gols: s.gols,
+        };
+      });
+    const map = new Map(fromStats.map((a) => [a.boleiroId, a]));
+    for (const a of aoVivo.artilharia ?? []) {
+      const prev = map.get(a.boleiroId);
+      const b = boleiros.get(a.boleiroId);
+      if (prev) {
+        prev.gols = Math.max(prev.gols, a.gols);
+      } else {
+        map.set(a.boleiroId, {
+          boleiroId: a.boleiroId,
+          nome: a.boleiroNome,
+          apelido: b?.apelido ?? null,
+          posicao: b?.posicao ?? null,
+          timeId: a.timeId,
+          timeNome: partida.times.find((t) => t.id === a.timeId)?.nome ?? null,
+          timeCor: b?.timeCor ?? null,
+          gols: a.gols,
+        });
+      }
+    }
+    return [...map.values()]
+      .sort((a, b) => b.gols - a.gols)
+      .slice(0, 10);
+  })();
 
   return {
     partida: {
@@ -245,9 +325,10 @@ export async function agregarResumo(
       },
     },
     times,
-    artilharia,
+    artilharia: artilhariaMerged.length > 0 ? artilhariaMerged : artilharia,
     timeline,
     estatisticas,
     totais: { totalGols, totalAmarelos, totalVermelhos, totalAzuis, totalSubs },
+    classificacao,
   };
 }

@@ -79,7 +79,13 @@ export function PresencasClient({ partida }: Props) {
 
   const filtrados = useMemo(() => {
     if (tab === 'todos') return partida.convites;
-    return partida.convites.filter((c) => c.status === tab);
+    const list = partida.convites.filter((c) => c.status === tab);
+    if (tab === 'lista_espera') {
+      return [...list].sort(
+        (a, b) => (a.posicaoEspera ?? 999) - (b.posicaoEspera ?? 999),
+      );
+    }
+    return list;
   }, [partida.convites, tab]);
 
   const capacidadeIlimitada = partida.boleirosPorTime === 0;

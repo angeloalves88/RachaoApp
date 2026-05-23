@@ -25,26 +25,39 @@ for (const file of ['.env.local', '.env']) {
 }
 
 /**
- * Next 15 gera symlinks em `.next/types/` (ex.: cache-life.d.ts).
- * No Windows + OneDrive, `readlink` falha com EINVAL — removemos antes do boot.
+ * Next 15 usa symlinks em `.next/` (types, rotas dinâmicas `[param]`).
+ * No Windows + OneDrive, `readlink` falha com EINVAL — limpamos antes do boot.
  */
-function cleanNextTypesOnWindows() {
+function cleanNextCacheOnWindows() {
   if (process.platform !== 'win32') return;
-  const typesDir = path.join(webRoot, '.next', 'types');
+  const nextDir = path.join(webRoot, '.next');
+  if (!existsSync(nextDir)) return;
+
+  const onOneDrive = /onedrive/i.test(webRoot);
+
+  if (onOneDrive) {
+    try {
+      rmSync(nextDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  const typesDir = path.join(nextDir, 'types');
   if (!existsSync(typesDir)) return;
   try {
     rmSync(typesDir, { recursive: true, force: true });
   } catch {
-    // Se ainda falhar, apaga o cache inteiro do Next.
     try {
-      rmSync(path.join(webRoot, '.next'), { recursive: true, force: true });
+      rmSync(nextDir, { recursive: true, force: true });
     } catch {
       /* ignore */
     }
   }
 }
 
-cleanNextTypesOnWindows();
+cleanNextCacheOnWindows();
 
 const port = process.env.WEB_PORT || process.env.PORT || '3000';
 const next = spawn('next', ['dev', '--port', port], {
