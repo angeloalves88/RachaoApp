@@ -10,14 +10,16 @@ export const dynamic = 'force-dynamic';
  * (Supabase não conhece `perfis` — precisamos do `/api/me` via getSession).
  */
 export default async function EntradaPage() {
+  let session;
   try {
-    const session = await getSession();
-    if (!session) redirect('/login?redirect=%2Fentrada');
-    if (!session.usuario || session.usuario.perfis.length === 0) redirect('/onboarding');
-    redirect(defaultAppHomePath(session.usuario.perfis));
+    session = await getSession();
   } catch (err) {
     const msg =
       err instanceof Error ? err.message : 'Erro ao comunicar com o servidor.';
     return <EntradaErro mensagem={msg} />;
   }
+
+  if (!session) redirect('/login?redirect=%2Fentrada');
+  if (!session.usuario || session.usuario.perfis.length === 0) redirect('/onboarding');
+  redirect(defaultAppHomePath(session.usuario.perfis));
 }
