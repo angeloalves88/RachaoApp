@@ -7,14 +7,25 @@ import {
   CalendarX2,
   ChevronLeft,
   ChevronRight,
+  Phone,
   RefreshCw,
+  Trash2,
+  User,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Segmented } from '@/components/ui/segmented';
-import { getAgenda, type AgendaResponse, type BloqueioRow } from '@/lib/estadios-actions';
+import {
+  getAgenda,
+  removerMinhaReservaManual,
+  type AgendaResponse,
+  type BloqueioRow,
+  type ReservaManualRow,
+} from '@/lib/estadios-actions';
 import { BloquearHorarioDialog } from './bloquear-horario-dialog';
+import { ReservarHorarioDialog } from './reservar-horario-dialog';
 
 interface Props {
   initial: AgendaResponse;
@@ -65,6 +76,8 @@ export function AgendaClient({ initial, mesInicial }: Props) {
   );
   const [bloquearOpen, setBloquearOpen] = useState(false);
   const [bloquearDataIso, setBloquearDataIso] = useState<string | null>(null);
+  const [reservarOpen, setReservarOpen] = useState(false);
+  const [reservarDataIso, setReservarDataIso] = useState<string | null>(null);
 
   useEffect(() => {
     if (ano === mesInicial.ano && mes === mesInicial.mes) return;
@@ -107,6 +120,20 @@ export function AgendaClient({ initial, mesInicial }: Props) {
     return s;
   }, [data.bloqueios, ano, mes]);
 
+  const reservasPorDia = useMemo(() => {
+    const m = new Map<number, AgendaResponse['reservasManuais']>();
+    for (const r of data.reservasManuais) {
+      const d = new Date(r.inicio);
+      if (d.getFullYear() === ano && d.getMonth() === mes) {
+        const dia = d.getDate();
+        const arr = m.get(dia) ?? [];
+        arr.push(r);
+        m.set(dia, arr);
+      }
+    }
+    return m;
+  }, [data.reservasManuais, ano, mes]);
+
   function navegar(delta: number) {
     let novoMes = mes + delta;
     let novoAno = ano;
@@ -129,14 +156,43 @@ export function AgendaClient({ initial, mesInicial }: Props) {
   for (let d = 1; d <= totalDias; d++) grade.push(d);
 
   const partidasDoDia = diaSelecionado != null ? partidasPorDia.get(diaSelecionado) ?? [] : [];
+  const reservasDoDia = diaSelecionado != null ? reservasPorDia.get(diaSelecionado) ?? [] : [];
 
   function abrirBloqueio(dataIso: string) {
     setBloquearDataIso(dataIso);
     setBloquearOpen(true);
   }
 
+  function abrirReserva(dataIso: string) {
+    setReservarDataIso(dataIso);
+    setReservarOpen(true);
+  }
+
   function handleBloqueado(b: BloqueioRow) {
     setData((prev) => ({ ...prev, bloqueios: [...prev.bloqueios, b] }));
+  }
+
+  function handleReservaCriada(reserva: ReservaManualRow) {
+    setData((prev) => ({
+      ...prev,
+      reservasManuais: [...prev.reservasManuais, reserva].sort((a, b) =>
+        a.inicio.localeCompare(b.inicio),
+      ),
+    }));
+  }
+
+  async function handleRemoverReserva(id: string) {
+    if (!window.confirm('Remover esta reserva manual da agenda?')) return;
+    try {
+      await removerMinhaReservaManual(id);
+      setData((prev) => ({
+        ...prev,
+        reservasManuais: prev.reservasManuais.filter((r) => r.id !== id),
+      }));
+      toast.success('Reserva manual removida.');
+    } catch {
+      toast.error('Não foi possível remover a reserva manual.');
+    }
   }
 
   return (
@@ -172,17 +228,29 @@ export function AgendaClient({ initial, mesInicial }: Props) {
           size="sm"
           className="flex-1"
         />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            const hoje = new Date();
-            const isoHoje = toDateStr(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
-            abrirBloqueio(isoHoje);
-          }}
-        >
-          <CalendarPlus size={14} aria-hidden /> Bloquear data
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const base = diaSelecionado ?? Math.min(new Date().getDate(), totalDias);
+              abrirReserva(toDateStr(ano, mes, base));
+            }}
+          >
+            <User size={14} aria-hidden /> Reservar horário
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const hoje = new Date();
+              const isoHoje = toDateStr(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+              abrirBloqueio(isoHoje);
+            }}
+          >
+            <CalendarPlus size={14} aria-hidden /> Bloquear data
+          </Button>
+        </div>
       </div>
 
       {view === 'mes' ? (
@@ -199,9 +267,11 @@ export function AgendaClient({ initial, mesInicial }: Props) {
                   return <div key={idx} className="aspect-square rounded bg-transparent" />;
                 }
                 const partidas = partidasPorDia.get(d) ?? [];
+                const reservas = reservasPorDia.get(d) ?? [];
                 const bloqueado = bloqueadosPorDia.has(d);
                 const temPendente = partidas.some((p) => p.statusEstadio === 'pendente');
                 const temAprovada = partidas.some((p) => p.statusEstadio === 'aprovado');
+                const temReservaManual = reservas.length > 0;
                 const selecionado = d === diaSelecionado;
                 return (
                   <button
@@ -224,6 +294,7 @@ export function AgendaClient({ initial, mesInicial }: Props) {
                     <div className="mt-0.5 flex h-1 items-center gap-0.5">
                       {temAprovada ? <span className="h-1 w-1 rounded-full bg-success" /> : null}
                       {temPendente ? <span className="h-1 w-1 rounded-full bg-warning" /> : null}
+                      {temReservaManual ? <span className="h-1 w-1 rounded-full bg-info" /> : null}
                       {bloqueado ? <span className="h-1 w-1 rounded-full bg-destructive" /> : null}
                     </div>
                   </button>
@@ -251,6 +322,7 @@ export function AgendaClient({ initial, mesInicial }: Props) {
           }
           partidas={data.partidas}
           bloqueios={data.bloqueios}
+          reservasManuais={data.reservasManuais}
           onBloquearDia={abrirBloqueio}
           onAbrirDia={(d) => {
             setAno(d.getFullYear());
@@ -265,6 +337,7 @@ export function AgendaClient({ initial, mesInicial }: Props) {
           mes={mes}
           ano={ano}
           partidas={partidasDoDia}
+          reservasManuais={reservasDoDia}
           bloqueio={
             diaSelecionado != null && bloqueadosPorDia.has(diaSelecionado)
               ? data.bloqueios.find((b) => {
@@ -282,6 +355,12 @@ export function AgendaClient({ initial, mesInicial }: Props) {
               toDateStr(ano, mes, diaSelecionado ?? new Date().getDate()),
             )
           }
+          onReservar={() =>
+            abrirReserva(
+              toDateStr(ano, mes, diaSelecionado ?? new Date().getDate()),
+            )
+          }
+          onRemoverReserva={handleRemoverReserva}
         />
       )}
 
@@ -291,6 +370,12 @@ export function AgendaClient({ initial, mesInicial }: Props) {
         dataInicial={bloquearDataIso}
         onBlocked={handleBloqueado}
       />
+      <ReservarHorarioDialog
+        open={reservarOpen}
+        onOpenChange={setReservarOpen}
+        dataInicial={reservarDataIso}
+        onCreated={handleReservaCriada}
+      />
 
       {/* Legenda */}
       <div className="flex flex-wrap gap-2 text-xs text-muted">
@@ -299,6 +384,9 @@ export function AgendaClient({ initial, mesInicial }: Props) {
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-1.5 w-1.5 rounded-full bg-warning" /> Pendente
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-info" /> Reserva manual
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="h-1.5 w-1.5 rounded-full bg-destructive" /> Bloqueada
@@ -313,30 +401,47 @@ function DiaView({
   mes,
   ano,
   partidas,
+  reservasManuais,
   bloqueio,
   onBloquear,
+  onReservar,
+  onRemoverReserva,
 }: {
   dia: number;
   mes: number;
   ano: number;
   partidas: AgendaResponse['partidas'];
+  reservasManuais: AgendaResponse['reservasManuais'];
   bloqueio: AgendaResponse['bloqueios'][number] | null;
   onBloquear?: () => void;
+  onReservar?: () => void;
+  onRemoverReserva?: (id: string) => void;
 }) {
   const dataFmt = new Date(ano, mes, dia).toLocaleDateString('pt-BR', {
     weekday: 'long',
     day: '2-digit',
     month: 'long',
   });
+  const itens = [
+    ...partidas.map((p) => ({ kind: 'partida' as const, inicio: p.dataHora, payload: p })),
+    ...reservasManuais.map((r) => ({ kind: 'reserva' as const, inicio: r.inicio, payload: r })),
+  ].sort((a, b) => a.inicio.localeCompare(b.inicio));
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <h2 className="font-display text-lg font-semibold">{dataFmt}</h2>
-        {!bloqueio && onBloquear ? (
-          <Button variant="outline" size="sm" onClick={onBloquear}>
-            <CalendarPlus size={14} aria-hidden /> Bloquear
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {!bloqueio && onReservar ? (
+            <Button variant="outline" size="sm" onClick={onReservar}>
+              <User size={14} aria-hidden /> Reservar
+            </Button>
+          ) : null}
+          {!bloqueio && onBloquear ? (
+            <Button variant="outline" size="sm" onClick={onBloquear}>
+              <CalendarPlus size={14} aria-hidden /> Bloquear
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {bloqueio ? (
@@ -353,16 +458,15 @@ function DiaView({
         </Card>
       ) : null}
 
-      {partidas.length === 0 ? (
+      {itens.length === 0 ? (
         <p className="rounded-md border border-dashed border-border bg-surface px-3 py-4 text-center text-sm text-muted">
-          Sem partidas neste dia.
+          Sem ocupações neste dia.
         </p>
       ) : (
         <div className="space-y-2">
-          {partidas
-            .slice()
-            .sort((a, b) => a.dataHora.localeCompare(b.dataHora))
-            .map((p) => {
+          {itens.map((item) => {
+            if (item.kind === 'partida') {
+              const p = item.payload;
               const dt = new Date(p.dataHora);
               const fim = new Date(dt.getTime() + p.tempoTotal * 60000);
               const inicio = dt.toLocaleTimeString('pt-BR', {
@@ -398,7 +502,52 @@ function DiaView({
                   </CardContent>
                 </Card>
               );
-            })}
+            }
+            const r = item.payload;
+            const dt = new Date(r.inicio);
+            const fim = new Date(r.fim);
+            const inicio = dt.toLocaleTimeString('pt-BR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            const fimStr = fim.toLocaleTimeString('pt-BR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            return (
+              <Card key={r.id}>
+                <CardContent className="space-y-2 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">
+                      {inicio} – {fimStr}
+                    </p>
+                    <Badge variant="info">Reserva manual</Badge>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="flex items-center gap-1 text-sm text-foreground">
+                      <User size={14} className="text-info" /> {r.nomeContato}
+                    </p>
+                    <p className="flex items-center gap-1 text-xs text-muted">
+                      <Phone size={12} /> {r.telefoneContato}
+                    </p>
+                    {r.observacoes ? (
+                      <p className="text-xs text-muted">{r.observacoes}</p>
+                    ) : null}
+                  </div>
+                  {onRemoverReserva ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onRemoverReserva(r.id)}
+                    >
+                      <Trash2 size={14} aria-hidden /> Remover reserva
+                    </Button>
+                  ) : null}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
@@ -423,6 +572,7 @@ function SemanaView({
   onVoltar,
   partidas,
   bloqueios,
+  reservasManuais,
   onBloquearDia,
   onAbrirDia,
 }: {
@@ -431,6 +581,7 @@ function SemanaView({
   onVoltar: () => void;
   partidas: AgendaResponse['partidas'];
   bloqueios: AgendaResponse['bloqueios'];
+  reservasManuais: AgendaResponse['reservasManuais'];
   onBloquearDia: (isoDate: string) => void;
   onAbrirDia: (d: Date) => void;
 }) {
@@ -470,6 +621,19 @@ function SemanaView({
     );
   }
 
+  function reservasDoDia(d: Date) {
+    return reservasManuais
+      .filter((r) => {
+        const x = new Date(r.inicio);
+        return (
+          x.getFullYear() === d.getFullYear() &&
+          x.getMonth() === d.getMonth() &&
+          x.getDate() === d.getDate()
+        );
+      })
+      .sort((a, b) => a.inicio.localeCompare(b.inicio));
+  }
+
   const tituloSemana = `${dias[0]!.getDate()}/${dias[0]!.getMonth() + 1} – ${dias[6]!.getDate()}/${dias[6]!.getMonth() + 1}`;
 
   return (
@@ -487,6 +651,7 @@ function SemanaView({
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-7">
         {dias.map((d, idx) => {
           const ps = partidasDoDia(d);
+          const rs = reservasDoDia(d);
           const bloqueio = bloqueioDoDia(d);
           const iso = toDateStr(d.getFullYear(), d.getMonth(), d.getDate());
           return (
@@ -512,7 +677,7 @@ function SemanaView({
                 ) : null}
 
                 <ul className="space-y-1">
-                  {ps.length === 0 && !bloqueio ? (
+                  {ps.length === 0 && rs.length === 0 && !bloqueio ? (
                     <li>
                       <button
                         type="button"
@@ -523,7 +688,8 @@ function SemanaView({
                       </button>
                     </li>
                   ) : (
-                    ps.map((p) => {
+                    <>
+                    {ps.map((p) => {
                       const dt = new Date(p.dataHora);
                       const hora = dt.toLocaleTimeString('pt-BR', {
                         hour: '2-digit',
@@ -550,11 +716,35 @@ function SemanaView({
                           </Link>
                         </li>
                       );
-                    })
+                    })}
+                    {rs.map((r) => {
+                      const dt = new Date(r.inicio);
+                      const hora = dt.toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
+                      return (
+                        <li key={r.id}>
+                          <button
+                            type="button"
+                            onClick={() => onAbrirDia(d)}
+                            className="block w-full rounded border border-info/40 bg-info/15 px-1.5 py-1 text-left text-[11px] text-info"
+                          >
+                            <p className="truncate font-medium">
+                              {hora} · {r.nomeContato}
+                            </p>
+                            <p className="truncate text-[10px] opacity-80">
+                              Reserva manual
+                            </p>
+                          </button>
+                        </li>
+                      );
+                    })}
+                    </>
                   )}
                 </ul>
 
-                {!bloqueio && ps.length > 0 ? (
+                {!bloqueio && (ps.length > 0 || rs.length > 0) ? (
                   <button
                     type="button"
                     onClick={() => onBloquearDia(iso)}

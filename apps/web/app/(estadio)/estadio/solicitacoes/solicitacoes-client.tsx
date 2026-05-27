@@ -37,20 +37,15 @@ export function SolicitacoesClient({ initial }: Props) {
   function aprovar(id: string) {
     const item = solicitacoes.find((s) => s.id === id);
     if (item?.conflito) {
-      if (
-        !window.confirm(
-          'Já existe uma partida aprovada neste horário. Deseja aprovar mesmo assim?',
-        )
-      ) {
-        return;
-      }
+      toast.error('Existe conflito com bloqueio, reserva manual ou outra partida aprovada.');
+      return;
     }
-    setSolicitacoes((s) =>
-      s.map((x) => (x.id === id ? { ...x, status: 'aprovada' as const } : x)),
-    );
     startTransition(async () => {
       try {
         await responderSolicitacao(id, { acao: 'aprovar' });
+        setSolicitacoes((s) =>
+          s.map((x) => (x.id === id ? { ...x, status: 'aprovada' as const } : x)),
+        );
         toast.success('Partida aprovada');
       } catch {
         toast.error('Falha ao aprovar');
@@ -202,7 +197,7 @@ function SolicitacaoCard({
         {s.status === 'pendente' && s.conflito ? (
           <p className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning-highlight px-3 py-2 text-xs text-warning">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-            Conflito com outra partida aprovada no mesmo horário.
+            Conflito com bloqueio, reserva manual ou outra partida aprovada no mesmo horário.
           </p>
         ) : null}
 
@@ -218,7 +213,7 @@ function SolicitacaoCard({
               size="sm"
               variant="default"
               onClick={onAprovar}
-              disabled={disabled}
+              disabled={disabled || s.conflito}
               className="flex-1"
             >
               <Check size={14} /> Aprovar

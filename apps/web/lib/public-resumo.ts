@@ -44,6 +44,18 @@ export interface ResumoEstatisticaApi {
   azuis: number;
 }
 
+export interface ResumoResultadoApi {
+  jogo: number;
+  timeAId: string;
+  timeANome: string | null;
+  timeACor: string | null;
+  golsA: number;
+  timeBId: string;
+  timeBNome: string | null;
+  timeBCor: string | null;
+  golsB: number;
+}
+
 export interface ClassificacaoResumoApi {
   timeId: string;
   nome: string;
@@ -74,6 +86,7 @@ export interface ResumoApi {
   };
   times: ResumoTimeApi[];
   artilharia: ResumoArtilheiroApi[];
+  resultados: ResumoResultadoApi[];
   timeline: ResumoEventoApi[];
   estatisticas: ResumoEstatisticaApi[];
   totais: {

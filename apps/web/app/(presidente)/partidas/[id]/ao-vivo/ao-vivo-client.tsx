@@ -59,6 +59,7 @@ import { clearActiveSession, setActiveSession, setPlacarSnapshot } from '@/lib/a
 import {
   extrairStatsDeEventos,
   mergeArtilharia,
+  mergeEstatisticasBoleiros,
   mergeEstatisticasTimes,
 } from '@/lib/classificacao-aovivo';
 import { Cronometro } from './cronometro';
@@ -128,6 +129,7 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
     jogoAtual: 1,
     jogoFinalizado: false,
     resultados: [],
+    estatisticasBoleiros: [],
     confronto: null,
     ...(partida.aoVivoEstado ?? {}),
   }));
@@ -401,7 +403,7 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
         const b = time?.boleiros.find((x) => x.boleiroId === boleiroId);
         return b?.apelido ?? b?.nome ?? 'Jogador';
       };
-      const { cartoesPorTime, artilheiros } = extrairStatsDeEventos(
+      const { cartoesPorTime, estatisticasBoleiros, artilheiros } = extrairStatsDeEventos(
         eventosJogoAtual,
         resolverNome,
       );
@@ -409,12 +411,17 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
         aoVivoEstado.estatisticasTimes,
         cartoesPorTime,
       );
+      const novasEstatisticasBoleiros = mergeEstatisticasBoleiros(
+        aoVivoEstado.estatisticasBoleiros,
+        estatisticasBoleiros,
+      );
       const novaArtilharia = mergeArtilharia(aoVivoEstado.artilharia, artilheiros);
 
       const r = await patchAoVivoEstado(partida.id, {
         jogoFinalizado: true,
         resultados: novosResultados,
         estatisticasTimes: novasEstatisticas,
+        estatisticasBoleiros: novasEstatisticasBoleiros,
         artilharia: novaArtilharia,
       });
       setAoVivoEstado((prev) => ({
@@ -422,6 +429,8 @@ export function AoVivoClient({ partida, escalacao, eventosIniciais }: Props) {
         jogoFinalizado: true,
         resultados: r.aoVivoEstado.resultados ?? novosResultados,
         estatisticasTimes: r.aoVivoEstado.estatisticasTimes ?? novasEstatisticas,
+        estatisticasBoleiros:
+          r.aoVivoEstado.estatisticasBoleiros ?? novasEstatisticasBoleiros,
         artilharia: r.aoVivoEstado.artilharia ?? novaArtilharia,
       }));
       void postCronometro(partida.id, { acao: 'pausar', clientId: crypto.randomUUID() }).catch(() => {});

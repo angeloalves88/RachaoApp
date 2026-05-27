@@ -4,18 +4,16 @@
  * "Encerrar" sem passar por "Finalizar jogo".
  */
 import {
+  cartoesPorBoleiroFromEventos,
   cartoesPorTimeFromEventos,
+  eventosNaoConsolidados,
   golsTotaisFromResultados,
+  jogoDoEvento,
+  mergeEstatisticasBoleiros,
   mergeEstatisticasTimes,
   parseAoVivoEstado,
   type AoVivoResultado,
 } from './classificacao-resumo.js';
-
-export function jogoDoEvento(dadosExtras: unknown): number {
-  if (!dadosExtras || typeof dadosExtras !== 'object' || Array.isArray(dadosExtras)) return 1;
-  const j = (dadosExtras as Record<string, unknown>).jogo;
-  return typeof j === 'number' && Number.isInteger(j) && j >= 1 ? j : 1;
-}
 
 type EventoMin = {
   tipo: string;
@@ -33,10 +31,15 @@ export function consolidarAoVivoEstado(
       ? { ...(aoVivoRaw as Record<string, unknown>) }
       : {};
   const parsed = parseAoVivoEstado(aoVivoRaw);
+  const eventosPendentes = eventosNaoConsolidados(eventos, parsed);
 
   const estatisticasTimes = mergeEstatisticasTimes(
     parsed.estatisticasTimes,
-    cartoesPorTimeFromEventos(eventos),
+    cartoesPorTimeFromEventos(eventosPendentes),
+  );
+  const estatisticasBoleiros = mergeEstatisticasBoleiros(
+    parsed.estatisticasBoleiros,
+    cartoesPorBoleiroFromEventos(eventosPendentes),
   );
 
   let resultados: AoVivoResultado[] = [...(parsed.resultados ?? [])];
@@ -48,7 +51,7 @@ export function consolidarAoVivoEstado(
     | undefined;
 
   if (!jogoFinalizado && confronto?.timeAId && confronto?.timeBId) {
-    const eventosJogo = eventos.filter((e) => jogoDoEvento(e.dadosExtras) === jogoAtual);
+    const eventosJogo = eventosPendentes.filter((e) => jogoDoEvento(e.dadosExtras) === jogoAtual);
     let golsA = 0;
     let golsB = 0;
     for (const ev of eventosJogo) {
@@ -75,7 +78,7 @@ export function consolidarAoVivoEstado(
   for (const a of parsed.artilharia ?? []) {
     artMap.set(a.boleiroId, { ...a });
   }
-  for (const ev of eventos) {
+  for (const ev of eventosPendentes) {
     if (ev.tipo === 'gol' && ev.boleiroId && ev.timeId) {
       const cur = artMap.get(ev.boleiroId);
       if (cur) cur.gols++;
@@ -93,6 +96,7 @@ export function consolidarAoVivoEstado(
   return {
     ...prev,
     estatisticasTimes,
+    estatisticasBoleiros,
     resultados,
     artilharia: [...artMap.values()],
     jogoFinalizado: true,
@@ -101,10 +105,10 @@ export function consolidarAoVivoEstado(
 
 export function golsFinaisPorTime(
   eventos: EventoMin[],
-  resultados: AoVivoResultado[] | undefined,
+  aoVivo: { jogoAtual?: number; jogoFinalizado?: boolean; resultados?: AoVivoResultado[] },
 ): Map<string, number> {
-  const map = golsTotaisFromResultados(resultados);
-  for (const ev of eventos) {
+  const map = golsTotaisFromResultados(aoVivo.resultados);
+  for (const ev of eventosNaoConsolidados(eventos, aoVivo)) {
     if (ev.tipo === 'gol' && ev.timeId) {
       map.set(ev.timeId, (map.get(ev.timeId) ?? 0) + 1);
     }

@@ -7,6 +7,7 @@ import type { PrismaClient } from '@rachao/db';
 import {
   calcularClassificacaoResumo,
   cartoesPorTimeFromEventos,
+  eventosNaoConsolidados,
   golsTotaisFromResultados,
   mergeEstatisticasTimes,
   parseAoVivoEstado,
@@ -59,6 +60,18 @@ export interface ResumoEstatistica {
   azuis: number;
 }
 
+export interface ResumoResultado {
+  jogo: number;
+  timeAId: string;
+  timeANome: string | null;
+  timeACor: string | null;
+  golsA: number;
+  timeBId: string;
+  timeBNome: string | null;
+  timeBCor: string | null;
+  golsB: number;
+}
+
 export type { ClassificacaoResumoRow };
 
 export interface ResumoData {
@@ -74,6 +87,7 @@ export interface ResumoData {
   };
   times: ResumoTime[];
   artilharia: ResumoArtilheiro[];
+  resultados: ResumoResultado[];
   timeline: ResumoEventoTimeline[];
   estatisticas: ResumoEstatistica[];
   totais: {
@@ -148,19 +162,21 @@ export async function agregarResumo(
     }
   }
 
-  // Placar derivado dos eventos
+  const aoVivo = parseAoVivoEstado(partida.aoVivoEstado);
+  const eventosPendentes = eventosNaoConsolidados(partida.eventos, aoVivo);
+
+  // Placar derivado dos eventos nao consolidados
   const golsPorTime = new Map<string, number>();
-  for (const ev of partida.eventos) {
+  for (const ev of eventosPendentes) {
     if (ev.tipo === 'gol' && ev.timeId) {
       golsPorTime.set(ev.timeId, (golsPorTime.get(ev.timeId) ?? 0) + 1);
     }
   }
 
-  const aoVivo = parseAoVivoEstado(partida.aoVivoEstado);
   const golsFromResultados = golsTotaisFromResultados(aoVivo.resultados);
   const estatisticasTimes = mergeEstatisticasTimes(
     aoVivo.estatisticasTimes,
-    cartoesPorTimeFromEventos(partida.eventos),
+    cartoesPorTimeFromEventos(eventosPendentes),
   );
 
   const classificacao = calcularClassificacaoResumo(
@@ -181,6 +197,28 @@ export async function agregarResumo(
     ),
     pontosFinal: ptsPorTime.get(t.id) ?? 0,
   }));
+  const totalGols = times.reduce((acc, t) => acc + t.golsFinal, 0);
+  const totalAmarelos = Object.values(estatisticasTimes).reduce((acc, t) => acc + t.amarelos, 0);
+  const totalVermelhos = Object.values(estatisticasTimes).reduce((acc, t) => acc + t.vermelhos, 0);
+  const totalAzuis = Object.values(estatisticasTimes).reduce((acc, t) => acc + t.azuis, 0);
+
+  const resultados: ResumoResultado[] = (aoVivo.resultados ?? [])
+    .map((r) => {
+      const timeA = partida.times.find((t) => t.id === r.timeAId);
+      const timeB = partida.times.find((t) => t.id === r.timeBId);
+      return {
+        jogo: r.jogo,
+        timeAId: r.timeAId,
+        timeANome: timeA?.nome ?? null,
+        timeACor: timeA?.cor ?? null,
+        golsA: r.golsA,
+        timeBId: r.timeBId,
+        timeBNome: timeB?.nome ?? null,
+        timeBCor: timeB?.cor ?? null,
+        golsB: r.golsB,
+      };
+    })
+    .sort((a, b) => a.jogo - b.jogo);
 
   // Estatísticas individuais
   const stats = new Map<string, ResumoEstatistica>();
@@ -204,18 +242,10 @@ export async function agregarResumo(
     return s;
   }
 
-  let totalGols = 0;
-  let totalAmarelos = 0;
-  let totalVermelhos = 0;
-  let totalAzuis = 0;
   let totalSubs = 0;
 
-  for (const ev of partida.eventos) {
-    if (ev.tipo === 'gol') totalGols++;
-    else if (ev.tipo === 'amarelo') totalAmarelos++;
-    else if (ev.tipo === 'vermelho') totalVermelhos++;
-    else if (ev.tipo === 'azul') totalAzuis++;
-    else if (ev.tipo === 'substituicao') totalSubs++;
+  for (const ev of eventosPendentes) {
+    if (ev.tipo === 'substituicao') totalSubs++;
 
     if (ev.boleiroId) {
       const s = statsFor(ev.boleiroId);
@@ -225,24 +255,6 @@ export async function agregarResumo(
       else if (ev.tipo === 'azul') s.azuis++;
     }
   }
-
-  const artilharia: ResumoArtilheiro[] = Array.from(stats.values())
-    .filter((s) => s.gols > 0)
-    .sort((a, b) => b.gols - a.gols)
-    .slice(0, 5)
-    .map((s) => {
-      const b = boleiros.get(s.boleiroId);
-      return {
-        boleiroId: s.boleiroId,
-        nome: s.nome,
-        apelido: s.apelido,
-        posicao: b?.posicao ?? null,
-        timeId: s.timeId,
-        timeNome: s.timeNome,
-        timeCor: b?.timeCor ?? null,
-        gols: s.gols,
-      };
-    });
 
   const timeline: ResumoEventoTimeline[] = partida.eventos.map((ev) => ({
     id: ev.id,
@@ -259,55 +271,52 @@ export async function agregarResumo(
 
   for (const a of aoVivo.artilharia ?? []) {
     const s = statsFor(a.boleiroId);
-    if (a.gols > s.gols) s.gols = a.gols;
+    s.gols += a.gols;
     const b = boleiros.get(a.boleiroId);
     if (b && a.boleiroNome) s.nome = a.boleiroNome;
+    if (!s.timeId) {
+      s.timeId = a.timeId;
+      s.timeNome = partida.times.find((t) => t.id === a.timeId)?.nome ?? null;
+    }
+  }
+
+  for (const sPersist of aoVivo.estatisticasBoleiros ?? []) {
+    const s = statsFor(sPersist.boleiroId);
+    s.amarelos += sPersist.amarelos;
+    s.vermelhos += sPersist.vermelhos;
+    s.azuis += sPersist.azuis;
+    if (sPersist.boleiroNome) s.nome = sPersist.boleiroNome;
+    if (!s.timeId) {
+      s.timeId = sPersist.timeId;
+      s.timeNome = partida.times.find((t) => t.id === sPersist.timeId)?.nome ?? null;
+    }
   }
 
   const estatisticas = Array.from(stats.values()).sort((a, b) => {
     if (b.gols !== a.gols) return b.gols - a.gols;
+    const cartoesA = a.amarelos + a.vermelhos + a.azuis;
+    const cartoesB = b.amarelos + b.vermelhos + b.azuis;
+    if (cartoesB !== cartoesA) return cartoesB - cartoesA;
     return a.nome.localeCompare(b.nome);
   });
 
-  const artilhariaMerged: ResumoArtilheiro[] = (() => {
-    const fromStats = Array.from(stats.values())
-      .filter((s) => s.gols > 0)
-      .map((s) => {
-        const b = boleiros.get(s.boleiroId);
-        return {
-          boleiroId: s.boleiroId,
-          nome: s.nome,
-          apelido: s.apelido,
-          posicao: b?.posicao ?? null,
-          timeId: s.timeId,
-          timeNome: s.timeNome,
-          timeCor: b?.timeCor ?? null,
-          gols: s.gols,
-        };
-      });
-    const map = new Map(fromStats.map((a) => [a.boleiroId, a]));
-    for (const a of aoVivo.artilharia ?? []) {
-      const prev = map.get(a.boleiroId);
-      const b = boleiros.get(a.boleiroId);
-      if (prev) {
-        prev.gols = Math.max(prev.gols, a.gols);
-      } else {
-        map.set(a.boleiroId, {
-          boleiroId: a.boleiroId,
-          nome: a.boleiroNome,
-          apelido: b?.apelido ?? null,
-          posicao: b?.posicao ?? null,
-          timeId: a.timeId,
-          timeNome: partida.times.find((t) => t.id === a.timeId)?.nome ?? null,
-          timeCor: b?.timeCor ?? null,
-          gols: a.gols,
-        });
-      }
-    }
-    return [...map.values()]
-      .sort((a, b) => b.gols - a.gols)
-      .slice(0, 10);
-  })();
+  const artilharia: ResumoArtilheiro[] = Array.from(stats.values())
+    .filter((s) => s.gols > 0)
+    .map((s) => {
+      const b = boleiros.get(s.boleiroId);
+      return {
+        boleiroId: s.boleiroId,
+        nome: s.nome,
+        apelido: s.apelido,
+        posicao: b?.posicao ?? null,
+        timeId: s.timeId,
+        timeNome: s.timeNome,
+        timeCor: b?.timeCor ?? null,
+        gols: s.gols,
+      };
+    })
+    .sort((a, b) => b.gols - a.gols || a.nome.localeCompare(b.nome))
+    .slice(0, 10);
 
   return {
     partida: {
@@ -325,7 +334,8 @@ export async function agregarResumo(
       },
     },
     times,
-    artilharia: artilhariaMerged.length > 0 ? artilhariaMerged : artilharia,
+    artilharia,
+    resultados,
     timeline,
     estatisticas,
     totais: { totalGols, totalAmarelos, totalVermelhos, totalAzuis, totalSubs },

@@ -14,6 +14,7 @@ import {
   dataBloqueadaSchema,
   estadioUpdateSchema,
   horariosDisponiveisBatchSchema,
+  reservaManualEstadioSchema,
   slugify,
   solicitacaoResponderSchema,
   solicitacoesListQuerySchema,
@@ -58,6 +59,62 @@ async function ensureEstadio(prisma: PrismaClient, usuarioId: string) {
     },
   });
   return estadio;
+}
+
+type ConflitoAgendaInput = {
+  inicio: Date;
+  fim: Date;
+  bloqueios: Array<{ data: Date }>;
+  partidas: Array<{ id: string; dataHora: Date; tempoTotal: number }>;
+  reservasManuais: Array<{ id: string; inicio: Date; fim: Date }>;
+  ignorePartidaId?: string;
+  ignoreReservaId?: string;
+};
+
+function startOfDay(data: Date): Date {
+  return new Date(data.getFullYear(), data.getMonth(), data.getDate(), 0, 0, 0, 0);
+}
+
+function endOfDay(data: Date): Date {
+  return new Date(data.getFullYear(), data.getMonth(), data.getDate(), 23, 59, 59, 999);
+}
+
+function intervalosSobrepostos(
+  inicioA: Date,
+  fimA: Date,
+  inicioB: Date,
+  fimB: Date,
+): boolean {
+  return inicioA.getTime() < fimB.getTime() && inicioB.getTime() < fimA.getTime();
+}
+
+function detectarConflitoAgenda({
+  inicio,
+  fim,
+  bloqueios,
+  partidas,
+  reservasManuais,
+  ignorePartidaId,
+  ignoreReservaId,
+}: ConflitoAgendaInput) {
+  const comBloqueio = bloqueios.some((b) =>
+    intervalosSobrepostos(inicio, fim, startOfDay(b.data), endOfDay(b.data)),
+  );
+  const comPartida = partidas.some((p) => {
+    if (ignorePartidaId && p.id === ignorePartidaId) return false;
+    const fimPartida = new Date(p.dataHora.getTime() + p.tempoTotal * 60_000);
+    return intervalosSobrepostos(inicio, fim, p.dataHora, fimPartida);
+  });
+  const comReservaManual = reservasManuais.some((r) => {
+    if (ignoreReservaId && r.id === ignoreReservaId) return false;
+    return intervalosSobrepostos(inicio, fim, r.inicio, r.fim);
+  });
+  return {
+    comBloqueio,
+    comPartida,
+    comReservaManual,
+    conflito: comBloqueio || comPartida || comReservaManual,
+  };
 }
 
 const estadiosRoutes: FastifyPluginAsync = async (fastify) => {
@@ -207,6 +264,104 @@ const estadiosRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   /**
+   * POST /api/me/estadio/reservas-manuais
+   */
+  fastify.post(
+    '/api/me/estadio/reservas-manuais',
+    { preHandler: fastify.requireAuth },
+    async (request, reply) => {
+      const auth = request.user!;
+      const body = reservaManualEstadioSchema.safeParse(request.body);
+      if (!body.success) return badRequest(reply, body.error.flatten().fieldErrors);
+
+      const estadio = await ensureEstadio(fastify.prisma, auth.sub);
+      const inicio = body.data.inicio;
+      const fim = body.data.fim;
+
+      const [bloqueios, partidasAprovadas, reservasManuais] = await Promise.all([
+        fastify.prisma.dataBloqueada.findMany({
+          where: {
+            estadioId: estadio.id,
+            data: {
+              gte: startOfDay(inicio),
+              lte: endOfDay(fim),
+            },
+          },
+          select: { data: true },
+        }),
+        fastify.prisma.partida.findMany({
+          where: {
+            estadioId: estadio.id,
+            statusEstadio: 'aprovado',
+            status: { in: ['agendada', 'em_andamento', 'encerrada'] },
+            dataHora: {
+              gte: startOfDay(inicio),
+              lte: endOfDay(fim),
+            },
+          },
+          select: { id: true, dataHora: true, tempoTotal: true },
+        }),
+        fastify.prisma.reservaManualEstadio.findMany({
+          where: {
+            estadioId: estadio.id,
+            inicio: { lt: fim },
+            fim: { gt: inicio },
+          },
+          select: { id: true, inicio: true, fim: true },
+        }),
+      ]);
+
+      const conflito = detectarConflitoAgenda({
+        inicio,
+        fim,
+        bloqueios,
+        partidas: partidasAprovadas,
+        reservasManuais,
+      });
+      if (conflito.conflito) {
+        return badRequest(
+          reply,
+          null,
+          'Já existe bloqueio, partida aprovada ou reserva manual neste horário',
+        );
+      }
+
+      const reserva = await fastify.prisma.reservaManualEstadio.create({
+        data: {
+          estadioId: estadio.id,
+          inicio,
+          fim,
+          nomeContato: body.data.nomeContato,
+          telefoneContato: body.data.telefoneContato,
+          observacoes: body.data.observacoes ?? null,
+        },
+      });
+      return reply.code(201).send({ reserva });
+    },
+  );
+
+  /**
+   * DELETE /api/me/estadio/reservas-manuais/:id
+   */
+  fastify.delete(
+    '/api/me/estadio/reservas-manuais/:id',
+    { preHandler: fastify.requireAuth },
+    async (request, reply) => {
+      const auth = request.user!;
+      const params = idParam.safeParse(request.params);
+      if (!params.success) return badRequest(reply, params.error.flatten().fieldErrors);
+
+      const estadio = await ensureEstadio(fastify.prisma, auth.sub);
+      const reserva = await fastify.prisma.reservaManualEstadio.findUnique({
+        where: { id: params.data.id },
+      });
+      if (!reserva || reserva.estadioId !== estadio.id) return notFound(reply);
+      await fastify.prisma.reservaManualEstadio.delete({ where: { id: reserva.id } });
+      return { ok: true };
+    },
+  );
+
+  /**
    * GET /api/me/estadio/agenda?inicio=YYYY-MM-DD&fim=YYYY-MM-DD
    * Retorna partidas + bloqueios da janela. Usado por T28.
    */
@@ -244,6 +399,15 @@ const estadiosRoutes: FastifyPluginAsync = async (fastify) => {
       orderBy: { data: 'asc' },
     });
 
+    const reservasManuais = await fastify.prisma.reservaManualEstadio.findMany({
+      where: {
+        estadioId: estadio.id,
+        inicio: { lt: query.data.fim },
+        fim: { gt: query.data.inicio },
+      },
+      orderBy: { inicio: 'asc' },
+    });
+
     return {
       partidas: partidas.map((p) => ({
         id: p.id,
@@ -258,6 +422,14 @@ const estadiosRoutes: FastifyPluginAsync = async (fastify) => {
         solicitacaoStatus: p.solicitacaoVinculo?.status ?? null,
       })),
       bloqueios,
+      reservasManuais: reservasManuais.map((r) => ({
+        id: r.id,
+        inicio: r.inicio,
+        fim: r.fim,
+        nomeContato: r.nomeContato,
+        telefoneContato: r.telefoneContato,
+        observacoes: r.observacoes,
+      })),
     };
   });
 
@@ -310,27 +482,24 @@ const estadiosRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
 
-      // Detecta conflitos com partidas aprovadas: mesmo estadio, mesma data, intervalo
-      // que se sobrepoe ao "tempoTotal" da solicitacao pendente.
-      const aprovadas = await fastify.prisma.partida.findMany({
-        where: {
-          estadioId: estadio.id,
-          statusEstadio: 'aprovado',
-          status: { in: ['agendada', 'em_andamento'] },
-        },
-        select: { id: true, dataHora: true, tempoTotal: true },
-      });
-
-      function temConflito(p: { id: string; dataHora: Date; tempoTotal: number }): boolean {
-        const inicio = p.dataHora.getTime();
-        const fim = inicio + p.tempoTotal * 60_000;
-        return aprovadas.some((a) => {
-          if (a.id === p.id) return false;
-          const aIni = a.dataHora.getTime();
-          const aFim = aIni + a.tempoTotal * 60_000;
-          return inicio < aFim && aIni < fim;
-        });
-      }
+      const [aprovadas, bloqueios, reservasManuais] = await Promise.all([
+        fastify.prisma.partida.findMany({
+          where: {
+            estadioId: estadio.id,
+            statusEstadio: 'aprovado',
+            status: { in: ['agendada', 'em_andamento'] },
+          },
+          select: { id: true, dataHora: true, tempoTotal: true },
+        }),
+        fastify.prisma.dataBloqueada.findMany({
+          where: { estadioId: estadio.id },
+          select: { data: true },
+        }),
+        fastify.prisma.reservaManualEstadio.findMany({
+          where: { estadioId: estadio.id },
+          select: { id: true, inicio: true, fim: true },
+        }),
+      ]);
 
       return {
         solicitacoes: solicitacoes.map((s) => ({
@@ -355,7 +524,17 @@ const estadiosRoutes: FastifyPluginAsync = async (fastify) => {
               presidente: s.partida.grupo.presidentes[0]?.usuario ?? null,
             },
           },
-          conflito: s.status === 'pendente' ? temConflito(s.partida) : false,
+          conflito:
+            s.status === 'pendente'
+              ? detectarConflitoAgenda({
+                  inicio: s.partida.dataHora,
+                  fim: new Date(s.partida.dataHora.getTime() + s.partida.tempoTotal * 60_000),
+                  bloqueios,
+                  partidas: aprovadas,
+                  reservasManuais,
+                  ignorePartidaId: s.partida.id,
+                }).conflito
+              : false,
         })),
       };
     },
@@ -379,7 +558,15 @@ const estadiosRoutes: FastifyPluginAsync = async (fastify) => {
         where: { id: params.data.id },
         include: {
           estadio: { select: { donoId: true, nome: true } },
-          partida: { select: { id: true, grupoId: true, dataHora: true, statusEstadio: true } },
+          partida: {
+            select: {
+              id: true,
+              grupoId: true,
+              dataHora: true,
+              tempoTotal: true,
+              statusEstadio: true,
+            },
+          },
         },
       });
       if (!solicitacao) return notFound(reply);
@@ -398,6 +585,44 @@ const estadiosRoutes: FastifyPluginAsync = async (fastify) => {
           : body.data.acao === 'recusar'
             ? 'recusado'
             : 'pendente';
+
+      if (body.data.acao === 'aprovar') {
+        const [aprovadas, bloqueios, reservasManuais] = await Promise.all([
+          fastify.prisma.partida.findMany({
+            where: {
+              estadioId: solicitacao.estadioId,
+              statusEstadio: 'aprovado',
+              status: { in: ['agendada', 'em_andamento'] },
+            },
+            select: { id: true, dataHora: true, tempoTotal: true },
+          }),
+          fastify.prisma.dataBloqueada.findMany({
+            where: { estadioId: solicitacao.estadioId },
+            select: { data: true },
+          }),
+          fastify.prisma.reservaManualEstadio.findMany({
+            where: { estadioId: solicitacao.estadioId },
+            select: { id: true, inicio: true, fim: true },
+          }),
+        ]);
+        const conflito = detectarConflitoAgenda({
+          inicio: solicitacao.partida.dataHora,
+          fim: new Date(
+            solicitacao.partida.dataHora.getTime() + solicitacao.partida.tempoTotal * 60_000,
+          ),
+          bloqueios,
+          partidas: aprovadas,
+          reservasManuais,
+          ignorePartidaId: solicitacao.partida.id,
+        });
+        if (conflito.conflito) {
+          return badRequest(
+            reply,
+            null,
+            'Existe bloqueio, reserva manual ou partida aprovada em conflito neste horário',
+          );
+        }
+      }
 
       await fastify.prisma.$transaction(async (tx) => {
         await tx.solicitacaoVinculo.update({

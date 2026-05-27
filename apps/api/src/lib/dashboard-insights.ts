@@ -2,16 +2,7 @@
  * Insights agregados para o dashboard do presidente (todos os grupos).
  */
 import type { PrismaClient } from '@rachao/db';
-
-type AoVivoJson = {
-  artilharia?: Array<{ boleiroId: string; boleiroNome?: string; gols?: number }>;
-  resultados?: Array<{
-    timeAId: string;
-    timeBId: string;
-    golsA: number;
-    golsB: number;
-  }>;
-};
+import { eventosNaoConsolidados, parseAoVivoEstado } from './classificacao-resumo.js';
 
 export interface DashboardRankingJogador {
   boleiroId: string;
@@ -98,14 +89,15 @@ export async function agregarDashboardInsights(
     boleiroId: string,
     grupoId: string,
     tipo: 'amarelo' | 'vermelho',
+    n = 1,
   ) {
     const cur = cartoesPorBoleiro.get(boleiroId) ?? {
       amarelos: 0,
       vermelhos: 0,
       grupoId,
     };
-    if (tipo === 'amarelo') cur.amarelos++;
-    else cur.vermelhos++;
+    if (tipo === 'amarelo') cur.amarelos += n;
+    else cur.vermelhos += n;
     cartoesPorBoleiro.set(boleiroId, cur);
   }
 
@@ -121,20 +113,35 @@ export async function agregarDashboardInsights(
   if (partidaIdsRelevantes.length > 0) {
     const eventos = await prisma.evento.findMany({
       where: { partidaId: { in: partidaIdsRelevantes } },
-      select: { tipo: true, boleiroId: true, partidaId: true, timeId: true },
+      select: { tipo: true, boleiroId: true, partidaId: true, timeId: true, dadosExtras: true },
     });
 
-    const partidaPorId = new Map(partidasRelevantes.map((p) => [p.id, p]));
+    const eventosPorPartida = new Map<string, typeof eventos>();
 
     for (const ev of eventos) {
-      const p = partidaPorId.get(ev.partidaId);
-      if (!p || !ev.boleiroId) continue;
-      if (ev.tipo === 'gol') bumpGol(ev.boleiroId, p.grupoId);
-      else if (ev.tipo === 'amarelo') bumpCartao(ev.boleiroId, p.grupoId, 'amarelo');
-      else if (ev.tipo === 'vermelho') bumpCartao(ev.boleiroId, p.grupoId, 'vermelho');
+      const list = eventosPorPartida.get(ev.partidaId) ?? [];
+      list.push(ev);
+      eventosPorPartida.set(ev.partidaId, list);
     }
 
     for (const p of partidasRelevantes) {
+      const estado = parseAoVivoEstado(p.aoVivoEstado);
+      const evsPartida = eventosNaoConsolidados(eventosPorPartida.get(p.id) ?? [], estado);
+
+      for (const a of estado.artilharia ?? []) {
+        if (a.boleiroId && a.gols) bumpGol(a.boleiroId, p.grupoId, a.gols);
+      }
+      for (const s of estado.estatisticasBoleiros ?? []) {
+        if (s.amarelos > 0) bumpCartao(s.boleiroId, p.grupoId, 'amarelo', s.amarelos);
+        if (s.vermelhos > 0) bumpCartao(s.boleiroId, p.grupoId, 'vermelho', s.vermelhos);
+      }
+      for (const ev of evsPartida) {
+        if (!ev.boleiroId) continue;
+        if (ev.tipo === 'gol') bumpGol(ev.boleiroId, p.grupoId);
+        else if (ev.tipo === 'amarelo') bumpCartao(ev.boleiroId, p.grupoId, 'amarelo');
+        else if (ev.tipo === 'vermelho') bumpCartao(ev.boleiroId, p.grupoId, 'vermelho');
+      }
+
       let golsPartida = 0;
 
       if (p.status === 'encerrada') {
@@ -145,16 +152,11 @@ export async function agregarDashboardInsights(
         const winners = p.times.filter((t) => (t.golsFinal ?? 0) === max && max > 0);
         if (winners.length === 1) registrarVitoria(winners[0]!.id, p.times);
       } else {
-        const estado = p.aoVivoEstado as AoVivoJson | null;
-        for (const a of estado?.artilharia ?? []) {
-          if (a.boleiroId && a.gols) bumpGol(a.boleiroId, p.grupoId, a.gols);
-        }
         for (const r of estado?.resultados ?? []) {
           golsPartida += r.golsA + r.golsB;
           if (r.golsA > r.golsB) registrarVitoria(r.timeAId, p.times);
           else if (r.golsB > r.golsA) registrarVitoria(r.timeBId, p.times);
         }
-        const evsPartida = eventos.filter((e) => e.partidaId === p.id);
         for (const ev of evsPartida) {
           if (ev.tipo === 'gol') golsPartida++;
         }
@@ -172,20 +174,47 @@ export async function agregarDashboardInsights(
     ...cartoesPorBoleiro.keys(),
   ]);
 
-  const boleiros =
+  const gruposPorId = new Map(partidas.map((p) => [p.grupoId, p.grupo.nome]));
+  const [boleirosFixos, convidadosAvulsos] =
     boleiroIds.size > 0
-      ? await prisma.boleiroGrupo.findMany({
-          where: { id: { in: Array.from(boleiroIds) }, grupoId: { in: grupoIds } },
-          select: {
-            id: true,
-            nome: true,
-            apelido: true,
-            grupo: { select: { nome: true } },
-          },
-        })
-      : [];
+      ? await Promise.all([
+          prisma.boleiroGrupo.findMany({
+            where: { id: { in: Array.from(boleiroIds) }, grupoId: { in: grupoIds } },
+            select: {
+              id: true,
+              nome: true,
+              apelido: true,
+              grupo: { select: { nome: true } },
+            },
+          }),
+          prisma.convidadoAvulso.findMany({
+            where: { id: { in: Array.from(boleiroIds) } },
+            select: { id: true, nome: true, apelido: true },
+          }),
+        ])
+      : [[], []];
 
-  const boleiroRef = new Map(boleiros.map((b) => [b.id, b]));
+  const boleiroRef = new Map<
+    string,
+    { id: string; nome: string; apelido: string | null; grupoNome: string }
+  >();
+  for (const b of boleirosFixos) {
+    boleiroRef.set(b.id, {
+      id: b.id,
+      nome: b.nome,
+      apelido: b.apelido,
+      grupoNome: b.grupo.nome,
+    });
+  }
+  for (const c of convidadosAvulsos) {
+    const grupoId = golsPorBoleiro.get(c.id)?.grupoId ?? cartoesPorBoleiro.get(c.id)?.grupoId;
+    boleiroRef.set(c.id, {
+      id: c.id,
+      nome: c.nome,
+      apelido: c.apelido,
+      grupoNome: grupoId ? (gruposPorId.get(grupoId) ?? 'Grupo') : 'Grupo',
+    });
+  }
 
   const topArtilheiros: DashboardRankingJogador[] = Array.from(golsPorBoleiro.entries())
     .map(([id, { gols, grupoId }]) => {
@@ -195,7 +224,7 @@ export async function agregarDashboardInsights(
         boleiroId: id,
         nome: b.nome,
         apelido: b.apelido,
-        grupoNome: b.grupo.nome,
+        grupoNome: b.grupoNome,
         valor: gols,
       };
     })
@@ -213,7 +242,7 @@ export async function agregarDashboardInsights(
         boleiroId: id,
         nome: b.nome,
         apelido: b.apelido,
-        grupoNome: b.grupo.nome,
+        grupoNome: b.grupoNome,
         valor: total,
         amarelos,
         vermelhos,

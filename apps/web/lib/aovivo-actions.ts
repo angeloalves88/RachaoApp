@@ -121,6 +121,15 @@ export interface ArtilheiroPersist {
   gols: number;
 }
 
+export interface EstatisticaBoleiroPersist {
+  boleiroId: string;
+  boleiroNome: string;
+  timeId: string;
+  amarelos: number;
+  vermelhos: number;
+  azuis: number;
+}
+
 export interface AoVivoEstado {
   jogoAtual?: number;
   confronto?: { timeAId: string; timeBId: string } | null;
@@ -130,6 +139,8 @@ export interface AoVivoEstado {
   estatisticasTimes?: Record<string, EstatisticasTimePersist>;
   /** Artilharia acumulada (persistida ao finalizar cada sub-jogo). */
   artilharia?: ArtilheiroPersist[];
+  /** Cartões acumulados por jogador (persistidos ao finalizar cada sub-jogo). */
+  estatisticasBoleiros?: EstatisticaBoleiroPersist[];
 }
 
 export async function getAoVivoEstado(partidaId: string) {
@@ -148,6 +159,7 @@ export async function patchAoVivoEstado(
     resultados?: AoVivoEstadoResultado[];
     estatisticasTimes?: Record<string, EstatisticasTimePersist>;
     artilharia?: ArtilheiroPersist[];
+    estatisticasBoleiros?: EstatisticaBoleiroPersist[];
   },
 ) {
   return apiFetch<{ ok: true; aoVivoEstado: AoVivoEstado }>(

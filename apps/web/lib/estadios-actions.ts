@@ -9,6 +9,7 @@ import type {
   DataBloqueadaInput,
   EstadioUpdateInput,
   HorariosDisponiveisBatchInput,
+  ReservaManualEstadioInput,
   SolicitacaoResponderInput,
 } from '@rachao/shared/zod';
 
@@ -56,6 +57,15 @@ export interface BloqueioRow {
   motivo: string | null;
 }
 
+export interface ReservaManualRow {
+  id: string;
+  inicio: string;
+  fim: string;
+  nomeContato: string;
+  telefoneContato: string;
+  observacoes: string | null;
+}
+
 export async function getMeuEstadio() {
   return apiFetch<{
     estadio: EstadioCompleto;
@@ -95,6 +105,21 @@ export async function removerMeuBloqueio(id: string) {
   });
 }
 
+export async function addMinhaReservaManual(input: ReservaManualEstadioInput) {
+  return apiFetch<{ reserva: ReservaManualRow }>('/api/me/estadio/reservas-manuais', {
+    method: 'POST',
+    body: input,
+    token: await token(),
+  });
+}
+
+export async function removerMinhaReservaManual(id: string) {
+  return apiFetch<{ ok: true }>(`/api/me/estadio/reservas-manuais/${id}`, {
+    method: 'DELETE',
+    token: await token(),
+  });
+}
+
 export interface AgendaResponse {
   partidas: Array<{
     id: string;
@@ -109,6 +134,7 @@ export interface AgendaResponse {
     solicitacaoStatus: string | null;
   }>;
   bloqueios: BloqueioRow[];
+  reservasManuais: ReservaManualRow[];
 }
 
 export async function getAgenda(inicio: string, fim: string) {

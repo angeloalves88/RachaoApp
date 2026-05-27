@@ -182,8 +182,6 @@ export function DashboardInsightsGrid({ data, nome }: Props) {
           </div>
           <ul className="space-y-2">
             {data.ultimasPartidas.map((p) => {
-              const t1 = p.times[0];
-              const t2 = p.times[1];
               return (
                 <li key={p.id}>
                   <Link
@@ -194,11 +192,7 @@ export function DashboardInsightsGrid({ data, nome }: Props) {
                       <p className="truncate text-sm font-medium">{p.grupo.nome}</p>
                       <p className="text-xs text-muted">{formatDataPartida(p.dataHora)}</p>
                     </div>
-                    {t1 && t2 ? (
-                      <p className="font-display text-lg font-semibold tabular-nums">
-                        {t1.gols} × {t2.gols}
-                      </p>
-                    ) : null}
+                    <ResultadoPartidaResumo times={p.times} />
                     <ChevronRight size={16} className="text-muted" />
                   </Link>
                 </li>
@@ -285,6 +279,58 @@ function HighlightCard({
         {icon} {title}
       </p>
       {children}
+    </div>
+  );
+}
+
+function ResultadoPartidaResumo({
+  times,
+}: {
+  times: DashboardSummary['ultimasPartidas'][number]['times'];
+}) {
+  if (times.length === 0) return null;
+
+  if (times.length === 2) {
+    const [t1, t2] = times;
+    if (!t1 || !t2) return null;
+    const cor1 = COR_HEX[(t1.cor as CorTime) ?? 'blue'] ?? '#3b82f6';
+    const cor2 = COR_HEX[(t2.cor as CorTime) ?? 'blue'] ?? '#3b82f6';
+    return (
+      <div className="min-w-0 text-right">
+        <p className="font-display text-lg font-semibold tabular-nums">
+          {t1.gols} × {t2.gols}
+        </p>
+        <p className="truncate text-xs text-muted">
+          <span className="inline-flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: cor1 }} aria-hidden />
+            {t1.nome}
+          </span>{' '}
+          ·{' '}
+          <span className="inline-flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: cor2 }} aria-hidden />
+            {t2.nome}
+          </span>
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-0 space-y-1 text-right">
+      {times.map((time) => {
+        const cor = COR_HEX[(time.cor as CorTime) ?? 'blue'] ?? '#3b82f6';
+        return (
+          <p key={`${time.nome}-${time.cor}`} className="truncate text-xs">
+            <span className="inline-flex items-center gap-1 text-muted">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: cor }} aria-hidden />
+              {time.nome}
+            </span>{' '}
+            <span className="font-display text-sm font-semibold tabular-nums text-foreground">
+              {time.gols}
+            </span>
+          </p>
+        );
+      })}
     </div>
   );
 }

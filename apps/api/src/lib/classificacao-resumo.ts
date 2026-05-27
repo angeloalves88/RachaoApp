@@ -4,6 +4,15 @@ export interface EstatisticasTime {
   azuis: number;
 }
 
+export interface EstatisticasBoleiro {
+  boleiroId: string;
+  boleiroNome: string;
+  timeId: string;
+  amarelos: number;
+  vermelhos: number;
+  azuis: number;
+}
+
 export interface AoVivoResultado {
   jogo: number;
   timeAId: string;
@@ -27,6 +36,21 @@ export interface ClassificacaoResumoRow {
   amarelos: number;
   vermelhos: number;
   azuis: number;
+}
+
+export interface AoVivoParsedState {
+  jogoAtual?: number;
+  confronto?: { timeAId: string; timeBId: string } | null;
+  jogoFinalizado?: boolean;
+  resultados?: AoVivoResultado[];
+  estatisticasTimes?: Record<string, EstatisticasTime>;
+  artilharia?: Array<{
+    boleiroId: string;
+    boleiroNome: string;
+    timeId: string;
+    gols: number;
+  }>;
+  estatisticasBoleiros?: EstatisticasBoleiro[];
 }
 
 export function calcularClassificacaoResumo(
@@ -113,6 +137,39 @@ export function cartoesPorTimeFromEventos(
   return out;
 }
 
+export function cartoesPorBoleiroFromEventos(
+  eventos: Array<{
+    tipo: string;
+    timeId: string | null;
+    boleiroId: string | null;
+    boleiroNome?: string | null;
+  }>,
+): EstatisticasBoleiro[] {
+  const out = new Map<string, EstatisticasBoleiro>();
+  for (const ev of eventos) {
+    if (
+      !ev.timeId ||
+      !ev.boleiroId ||
+      (ev.tipo !== 'amarelo' && ev.tipo !== 'vermelho' && ev.tipo !== 'azul')
+    ) {
+      continue;
+    }
+    const cur = out.get(ev.boleiroId) ?? {
+      boleiroId: ev.boleiroId,
+      boleiroNome: ev.boleiroNome ?? '',
+      timeId: ev.timeId,
+      amarelos: 0,
+      vermelhos: 0,
+      azuis: 0,
+    };
+    if (ev.tipo === 'amarelo') cur.amarelos++;
+    else if (ev.tipo === 'vermelho') cur.vermelhos++;
+    else cur.azuis++;
+    out.set(ev.boleiroId, cur);
+  }
+  return [...out.values()];
+}
+
 export function mergeEstatisticasTimes(
   base: Record<string, EstatisticasTime> | undefined,
   add: Record<string, EstatisticasTime>,
@@ -129,19 +186,56 @@ export function mergeEstatisticasTimes(
   return out;
 }
 
-export function parseAoVivoEstado(raw: unknown): {
-  resultados?: AoVivoResultado[];
-  estatisticasTimes?: Record<string, EstatisticasTime>;
-  artilharia?: Array<{
-    boleiroId: string;
-    boleiroNome: string;
-    timeId: string;
-    gols: number;
-  }>;
-} {
+export function mergeEstatisticasBoleiros(
+  base: EstatisticasBoleiro[] | undefined,
+  add: EstatisticasBoleiro[],
+): EstatisticasBoleiro[] {
+  const map = new Map<string, EstatisticasBoleiro>();
+  for (const s of base ?? []) {
+    map.set(s.boleiroId, { ...s });
+  }
+  for (const s of add) {
+    const prev = map.get(s.boleiroId);
+    if (prev) {
+      prev.amarelos += s.amarelos;
+      prev.vermelhos += s.vermelhos;
+      prev.azuis += s.azuis;
+      if (s.boleiroNome) prev.boleiroNome = s.boleiroNome;
+      if (s.timeId) prev.timeId = s.timeId;
+    } else {
+      map.set(s.boleiroId, { ...s });
+    }
+  }
+  return [...map.values()];
+}
+
+export function jogoDoEvento(dadosExtras: unknown): number {
+  if (!dadosExtras || typeof dadosExtras !== 'object' || Array.isArray(dadosExtras)) return 1;
+  const j = (dadosExtras as Record<string, unknown>).jogo;
+  return typeof j === 'number' && Number.isInteger(j) && j >= 1 ? j : 1;
+}
+
+export function eventosNaoConsolidados<T extends { dadosExtras: unknown }>(
+  eventos: T[],
+  aoVivo: AoVivoParsedState,
+): T[] {
+  if (!aoVivo.jogoFinalizado || typeof aoVivo.jogoAtual !== 'number') return eventos;
+  const jogoAtual = aoVivo.jogoAtual;
+  const resultadoPersistido = (aoVivo.resultados ?? []).some((r) => r.jogo === jogoAtual);
+  if (!resultadoPersistido) return eventos;
+  return eventos.filter((ev) => jogoDoEvento(ev.dadosExtras) !== jogoAtual);
+}
+
+export function parseAoVivoEstado(raw: unknown): AoVivoParsedState {
   if (!raw || typeof raw !== 'object') return {};
   const o = raw as Record<string, unknown>;
   return {
+    jogoAtual: typeof o.jogoAtual === 'number' ? o.jogoAtual : undefined,
+    confronto:
+      o.confronto && typeof o.confronto === 'object'
+        ? (o.confronto as { timeAId: string; timeBId: string })
+        : undefined,
+    jogoFinalizado: o.jogoFinalizado === true,
     resultados: Array.isArray(o.resultados) ? (o.resultados as AoVivoResultado[]) : undefined,
     estatisticasTimes:
       o.estatisticasTimes && typeof o.estatisticasTimes === 'object'
@@ -154,6 +248,9 @@ export function parseAoVivoEstado(raw: unknown): {
           timeId: string;
           gols: number;
         }>)
+      : undefined,
+    estatisticasBoleiros: Array.isArray(o.estatisticasBoleiros)
+      ? (o.estatisticasBoleiros as EstatisticasBoleiro[])
       : undefined,
   };
 }

@@ -90,6 +90,50 @@ export function ResumoView({ data, isPublic = false }: Props) {
         </div>
       </section>
 
+      {/* Resultados dos sub-jogos */}
+      {data.resultados.length > 0 ? (
+        <section className="space-y-2">
+          <h2 className="font-display text-lg font-semibold">Placares do dia</h2>
+          <ul className="space-y-2">
+            {data.resultados.map((r) => {
+              const corA = r.timeACor ? COR_HEX[(r.timeACor as CorTime) ?? 'blue'] ?? r.timeACor : '#888';
+              const corB = r.timeBCor ? COR_HEX[(r.timeBCor as CorTime) ?? 'blue'] ?? r.timeBCor : '#888';
+              return (
+                <li
+                  key={`${r.jogo}-${r.timeAId}-${r.timeBId}`}
+                  className="rounded-xl border border-border bg-surface px-4 py-3"
+                >
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                    Jogo {r.jogo}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: corA }}
+                        aria-hidden
+                      />
+                      <span className="truncate">{r.timeANome ?? 'Time A'}</span>
+                    </div>
+                    <div className="text-center font-display text-2xl font-bold tabular-nums">
+                      {r.golsA} × {r.golsB}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm font-medium sm:justify-end">
+                      <span className="truncate">{r.timeBNome ?? 'Time B'}</span>
+                      <span
+                        className="h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: corB }}
+                        aria-hidden
+                      />
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
       {/* Classificação */}
       {(data.classificacao ?? []).length > 0 ? (
         <section className="space-y-2">

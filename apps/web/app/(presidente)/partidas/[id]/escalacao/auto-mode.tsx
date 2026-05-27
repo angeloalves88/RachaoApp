@@ -256,11 +256,6 @@ export function AutoMode({
                 )
               }
               cor={team.cor}
-              onCorChange={(cor) =>
-                setDraft((d) =>
-                  d ? d.map((t, i) => (i === idx ? { ...t, cor } : t)) : d,
-                )
-              }
               capitaoConviteId={team.capitaoConviteId}
               onCapitaoChange={() => {}}
               members={team.conviteIds
@@ -288,7 +283,6 @@ export function AutoMode({
               nome={team.nome}
               onNomeChange={() => {}}
               cor={team.cor}
-              onCorChange={() => {}}
               capitaoConviteId={team.capitaoConviteId}
               onCapitaoChange={() => {}}
               members={team.conviteIds

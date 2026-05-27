@@ -683,6 +683,30 @@ export const dataBloqueadaSchema = z.object({
 });
 export type DataBloqueadaInput = z.infer<typeof dataBloqueadaSchema>;
 
+export const reservaManualEstadioSchema = z
+  .object({
+    inicio: z.coerce.date(),
+    fim: z.coerce.date(),
+    nomeContato: z.string().trim().min(2).max(80),
+    telefoneContato: celularBrSchema,
+    observacoes: z.string().trim().max(280).optional().nullable(),
+  })
+  .refine((data) => data.fim.getTime() > data.inicio.getTime(), {
+    message: 'O horário final deve ser maior que o inicial',
+    path: ['fim'],
+  })
+  .refine(
+    (data) =>
+      data.inicio.getFullYear() === data.fim.getFullYear() &&
+      data.inicio.getMonth() === data.fim.getMonth() &&
+      data.inicio.getDate() === data.fim.getDate(),
+    {
+      message: 'A reserva manual deve começar e terminar no mesmo dia',
+      path: ['fim'],
+    },
+  );
+export type ReservaManualEstadioInput = z.infer<typeof reservaManualEstadioSchema>;
+
 /**
  * T29 - Aprovar / recusar solicitacao de vinculo.
  */

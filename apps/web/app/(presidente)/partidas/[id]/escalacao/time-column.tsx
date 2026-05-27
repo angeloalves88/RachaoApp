@@ -2,7 +2,6 @@
 
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { CorTime } from '@rachao/shared/zod';
-import { CORES_TIME } from '@rachao/shared/zod';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -24,7 +23,6 @@ interface Props {
   nome: string;
   onNomeChange: (v: string) => void;
   cor: CorTime;
-  onCorChange: (c: CorTime) => void;
   members: TimeColumnMember[];
   /** Reservas opcionais (renderiza segunda lista quando reservasPorTime > 0). */
   reservasMembers?: TimeColumnMember[];
@@ -44,7 +42,6 @@ export function TimeColumn({
   nome,
   onNomeChange,
   cor,
-  onCorChange,
   members,
   reservasMembers = [],
   reservasPorTime = 0,
@@ -76,22 +73,6 @@ export function TimeColumn({
             aria-label="Nome do time"
           />
         )}
-        {!readOnly ? (
-          <div className="flex flex-wrap gap-1" role="group" aria-label="Cor do time">
-            {CORES_TIME.map((c) => (
-              <button
-                key={c}
-                type="button"
-                title={c}
-                className={`h-6 w-6 rounded-full border-2 transition-transform ${
-                  cor === c ? 'scale-110 border-foreground' : 'border-transparent opacity-80'
-                }`}
-                style={{ backgroundColor: COR_HEX[c] }}
-                onClick={() => onCorChange(c)}
-              />
-            ))}
-          </div>
-        ) : null}
       </div>
 
       <div className="flex items-center justify-between gap-2 text-xs text-muted">

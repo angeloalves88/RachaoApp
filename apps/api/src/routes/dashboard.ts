@@ -76,7 +76,7 @@ const dashboardRoutes: FastifyPluginAsync = async (fastify) => {
           take: 3,
           include: {
             grupo: { select: { id: true, nome: true } },
-            times: { select: { nome: true, golsFinal: true, cor: true } },
+            times: { orderBy: { nome: 'asc' }, select: { nome: true, golsFinal: true, cor: true } },
           },
         }),
         fastify.prisma.pagamento.count({

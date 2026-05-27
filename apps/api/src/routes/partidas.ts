@@ -1072,7 +1072,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         });
         const aoVivoConsolidado = consolidarAoVivoEstado(partida.aoVivoEstado, eventos);
         const parsed = parseAoVivoEstado(aoVivoConsolidado);
-        const golsPorTime = golsFinaisPorTime(eventos, parsed.resultados);
+        const golsPorTime = golsFinaisPorTime(eventos, parsed);
 
         const times = await tx.time.findMany({
           where: { partidaId: partida.id },
@@ -1146,6 +1146,18 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         }),
       )
       .optional(),
+    estatisticasBoleiros: z
+      .array(
+        z.object({
+          boleiroId: z.string().min(1),
+          boleiroNome: z.string(),
+          timeId: z.string().min(1),
+          amarelos: z.number().int().min(0),
+          vermelhos: z.number().int().min(0),
+          azuis: z.number().int().min(0),
+        }),
+      )
+      .optional(),
   });
 
   fastify.get(
@@ -1206,6 +1218,9 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
           ? { estatisticasTimes: body.data.estatisticasTimes }
           : {}),
         ...(body.data.artilharia !== undefined ? { artilharia: body.data.artilharia } : {}),
+        ...(body.data.estatisticasBoleiros !== undefined
+          ? { estatisticasBoleiros: body.data.estatisticasBoleiros }
+          : {}),
       };
       await fastify.prisma.partida.update({
         where: { id: params.data.id },

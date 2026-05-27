@@ -267,6 +267,7 @@ model Estadio {
   dono          Usuario              @relation(fields: [donoId], references: [id], onDelete: Cascade)
   horarios      HorarioDisponivel[]
   bloqueios     DataBloqueada[]
+  reservasManuais ReservaManualEstadio[]
   partidas      Partida[]
   solicitacoes  SolicitacaoVinculo[]
 
@@ -324,6 +325,24 @@ model DataBloqueada {
   estadio Estadio @relation(fields: [estadioId], references: [id], onDelete: Cascade)
 
   @@index([estadioId, data])
+}
+
+model ReservaManualEstadio {
+  id              String   @id @default(cuid())
+  estadioId       String
+  inicio          DateTime
+  fim             DateTime
+  nomeContato     String
+  telefoneContato String
+  observacoes     String?
+
+  criadoEm        DateTime @default(now())
+  atualizadoEm    DateTime @updatedAt
+
+  estadio Estadio @relation(fields: [estadioId], references: [id], onDelete: Cascade)
+
+  @@index([estadioId, inicio])
+  @@index([estadioId, fim])
 }
 
 // -----------------------------------------------------------------------------

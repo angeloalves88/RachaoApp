@@ -14,6 +14,15 @@ export interface Artilheiro {
   gols: number;
 }
 
+export interface EstatisticaBoleiro {
+  boleiroId: string;
+  boleiroNome: string;
+  timeId: string;
+  amarelos: number;
+  vermelhos: number;
+  azuis: number;
+}
+
 export interface ClassificacaoTimeRow {
   timeId: string;
   nome: string;
@@ -36,10 +45,12 @@ export function extrairStatsDeEventos(
   resolverNome: (boleiroId: string, timeId: string) => string,
 ): {
   cartoesPorTime: Record<string, EstatisticasTime>;
+  estatisticasBoleiros: EstatisticaBoleiro[];
   artilheiros: Artilheiro[];
 } {
   const cartoesPorTime: Record<string, EstatisticasTime> = {};
   const golsPorBoleiro = new Map<string, Artilheiro>();
+  const cartoesPorBoleiro = new Map<string, EstatisticaBoleiro>();
 
   for (const ev of eventos) {
     if (!ev.timeId) continue;
@@ -50,6 +61,24 @@ export function extrairStatsDeEventos(
     if (ev.tipo === 'amarelo') ct.amarelos++;
     else if (ev.tipo === 'vermelho') ct.vermelhos++;
     else if (ev.tipo === 'azul') ct.azuis++;
+
+    if (
+      ev.boleiroId &&
+      (ev.tipo === 'amarelo' || ev.tipo === 'vermelho' || ev.tipo === 'azul')
+    ) {
+      const cur = cartoesPorBoleiro.get(ev.boleiroId) ?? {
+        boleiroId: ev.boleiroId,
+        boleiroNome: ev.boleiroNome ?? resolverNome(ev.boleiroId, ev.timeId),
+        timeId: ev.timeId,
+        amarelos: 0,
+        vermelhos: 0,
+        azuis: 0,
+      };
+      if (ev.tipo === 'amarelo') cur.amarelos++;
+      else if (ev.tipo === 'vermelho') cur.vermelhos++;
+      else cur.azuis++;
+      cartoesPorBoleiro.set(ev.boleiroId, cur);
+    }
 
     if (ev.tipo === 'gol' && ev.boleiroId) {
       const cur = golsPorBoleiro.get(ev.boleiroId) ?? {
@@ -63,7 +92,11 @@ export function extrairStatsDeEventos(
     }
   }
 
-  return { cartoesPorTime, artilheiros: [...golsPorBoleiro.values()] };
+  return {
+    cartoesPorTime,
+    estatisticasBoleiros: [...cartoesPorBoleiro.values()],
+    artilheiros: [...golsPorBoleiro.values()],
+  };
 }
 
 export function mergeEstatisticasTimes(
@@ -100,6 +133,32 @@ export function mergeArtilharia(
     }
   }
   return [...map.values()].sort((a, b) => b.gols - a.gols || a.boleiroNome.localeCompare(b.boleiroNome));
+}
+
+export function mergeEstatisticasBoleiros(
+  base: EstatisticaBoleiro[] | undefined,
+  add: EstatisticaBoleiro[],
+): EstatisticaBoleiro[] {
+  const map = new Map<string, EstatisticaBoleiro>();
+  for (const s of base ?? []) {
+    map.set(s.boleiroId, { ...s });
+  }
+  for (const s of add) {
+    const prev = map.get(s.boleiroId);
+    if (prev) {
+      prev.amarelos += s.amarelos;
+      prev.vermelhos += s.vermelhos;
+      prev.azuis += s.azuis;
+      if (s.boleiroNome) prev.boleiroNome = s.boleiroNome;
+    } else {
+      map.set(s.boleiroId, { ...s });
+    }
+  }
+  return [...map.values()].sort((a, b) => {
+    const totalA = a.amarelos + a.vermelhos + a.azuis;
+    const totalB = b.amarelos + b.vermelhos + b.azuis;
+    return totalB - totalA || a.boleiroNome.localeCompare(b.boleiroNome);
+  });
 }
 
 export function calcularClassificacaoTimes(

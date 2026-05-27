@@ -604,25 +604,6 @@ export function ManualMode({
                     maxLength={20}
                     aria-label="Nome do time"
                   />
-                  <div className="flex flex-wrap gap-1">
-                    {CORES_TIME.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        className={`h-6 w-6 rounded-full border-2 ${
-                          meta.cor === c ? 'scale-110 border-foreground' : 'border-transparent opacity-80'
-                        }`}
-                        style={{ backgroundColor: COR_HEX[c] }}
-                        onClick={() =>
-                          setState((s) => ({
-                            ...s,
-                            timeMeta: s.timeMeta.map((m, j) => (j === i ? { ...m, cor: c } : m)),
-                          }))
-                        }
-                        aria-label={`Cor ${c}`}
-                      />
-                    ))}
-                  </div>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted">
                   <span>Titulares: {titIds.length}/{boleirosPorTime}</span>
