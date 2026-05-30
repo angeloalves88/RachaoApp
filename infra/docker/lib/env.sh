@@ -148,11 +148,36 @@ env_wait_for_postgres() {
 # Swarm em VPS sem registry: tag :latest nao atualiza tasks apos docker build.
 # Solucao: criar tag unica local (deploy-YYYYMMDD-HHMMSS) e apontar o servico para ela.
 # NAO usar imagem@sha256:id — o Swarm tenta registry e falha com "No such image".
+env_swarm_wait_service_idle() {
+  local service_name="$1"
+  local max_wait="${2:-180}"
+  local i state has_busy
+
+  for ((i = 0; i < max_wait; i += 2)); do
+    state=$(docker service inspect "$service_name" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}' 2>/dev/null || echo "unknown")
+    has_busy=$(docker service ps "$service_name" --no-trunc --format '{{.CurrentState}}' 2>/dev/null \
+      | grep -cE 'Preparing|Starting|Updating|Pending|Assigned' || true)
+
+    if [[ "$state" == "completed" || "$state" == "unknown" || -z "$state" ]] && [[ "$has_busy" -eq 0 ]]; then
+      return 0
+    fi
+
+    if (( i == 0 )); then
+      echo "    aguardando ${service_name} (state=${state:-idle}, tasks=${has_busy})..."
+    fi
+    sleep 2
+  done
+
+  echo "AVISO: timeout aguardando ${service_name} estabilizar (${max_wait}s)" >&2
+  return 0
+}
+
 env_swarm_refresh_image() {
   local service_name="$1"
   local image_name="$2"
   local base="${image_name%:*}"
   local unique_tag="${base}:deploy-$(date +%Y%m%d-%H%M%S)"
+  local attempt out max_attempts=6
 
   if ! docker image inspect "$image_name" >/dev/null 2>&1; then
     echo "ERRO: imagem local '${image_name}' nao existe. Rode o build antes." >&2
@@ -161,12 +186,32 @@ env_swarm_refresh_image() {
 
   docker tag "$image_name" "$unique_tag"
   echo "==> Swarm: ${service_name} <- ${unique_tag} (de ${image_name})"
-  docker service update \
-    --image "$unique_tag" \
-    --force \
-    --detach=false \
-    --update-order stop-first \
-    "$service_name"
+
+  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+    env_swarm_wait_service_idle "$service_name"
+
+    if out=$(docker service update \
+      --image "$unique_tag" \
+      --force \
+      --detach=false \
+      --update-order stop-first \
+      "$service_name" 2>&1); then
+      [[ -n "$out" ]] && echo "$out"
+      return 0
+    fi
+
+    if [[ "$out" == *"update out of sequence"* || "$out" == *"update paused"* ]]; then
+      echo "    ${service_name}: conflito de update (tentativa ${attempt}/${max_attempts}), aguardando..."
+      sleep $((attempt * 4))
+      continue
+    fi
+
+    echo "$out" >&2
+    return 1
+  done
+
+  echo "ERRO: ${service_name} nao convergiu apos ${max_attempts} tentativas." >&2
+  return 1
 }
 
 # Falha se alguma variavel obrigatoria estiver vazia (evita stack deploy sem POSTGRES_PASSWORD)

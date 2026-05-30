@@ -29,6 +29,11 @@ chmod 600 "$RESOLVED_FILE"
 
 docker stack deploy -c "$RESOLVED_FILE" "$STACK"
 
+# stack deploy dispara updates assincronos; refresh sequencial evita "update out of sequence"
+echo "==> Aguardando stack ${STACK} estabilizar antes de trocar imagens..."
+env_swarm_wait_service_idle "${STACK}_rachao-api" 240
+env_swarm_wait_service_idle "${STACK}_rachao-web" 240
+
 # Obrigatorio apos rebuild local com mesma tag :latest
 env_swarm_refresh_image "${STACK}_rachao-api" "$API_IMAGE"
 env_swarm_refresh_image "${STACK}_rachao-web" "$WEB_IMAGE"
