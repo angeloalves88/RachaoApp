@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fluxo completo: build API -> validar imagem -> deploy Swarm
+# Fluxo completo: build API + migrate -> validar imagem -> deploy Swarm
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,6 +13,12 @@ env_ensure_database_url
 
 echo "==> Build API"
 docker build -f "$SCRIPT_DIR/Dockerfile.api" -t "${CR_IMAGE_API:-rachao-api:latest}" "$REPO_ROOT"
+
+echo "==> Build Migrate (schema Prisma)"
+docker build -f "$SCRIPT_DIR/Dockerfile.migrate" -t "${CR_IMAGE_MIGRATE:-rachao-migrate:latest}" "$REPO_ROOT"
+
+echo "==> Aplicar migrations no Postgres"
+"$SCRIPT_DIR/run-migrate.sh"
 
 echo "==> Validar imagem (boot + /health)"
 "$SCRIPT_DIR/verify-api-image.sh"
