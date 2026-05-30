@@ -11,8 +11,15 @@ source "$SCRIPT_DIR/lib/env.sh"
 env_load_all "$SCRIPT_DIR/.env"
 env_ensure_database_url
 
-echo "==> Build API"
-docker build -f "$SCRIPT_DIR/Dockerfile.api" -t "${CR_IMAGE_API:-rachao-api:latest}" "$REPO_ROOT"
+GIT_REVISION="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || date +%s)"
+export GIT_REVISION
+
+echo "==> Build API (revision ${GIT_REVISION:-unknown})"
+docker build -f "$SCRIPT_DIR/Dockerfile.api" \
+  --build-arg "GIT_REVISION=${GIT_REVISION}" \
+  ${DOCKER_BUILD_NO_CACHE:+--no-cache} \
+  -t "${CR_IMAGE_API:-rachao-api:latest}" \
+  "$REPO_ROOT"
 
 echo "==> Build Migrate (schema Prisma)"
 docker build -f "$SCRIPT_DIR/Dockerfile.migrate" -t "${CR_IMAGE_MIGRATE:-rachao-migrate:latest}" "$REPO_ROOT"

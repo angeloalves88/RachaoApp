@@ -25,6 +25,14 @@ docker run --rm --entrypoint sh "$IMAGE" -c '
   test -s /app/server.cjs || { echo "FALTA server.cjs"; exit 1; }
   test -f /app/node_modules/@prisma/client/package.json || { echo "FALTA @prisma/client"; exit 1; }
   ls -la /app/server.cjs
+  for route in "/api/grupos/:id/financeiro" "/api/grupos/:id/convidados"; do
+    grep -qF "$route" /app/server.cjs || {
+      echo "FALTA rota $route no bundle — API desatualizada."
+      echo "Rode: docker build --no-cache -f Dockerfile.api -t rachao-api:latest ../.."
+      exit 1
+    }
+  done
+  echo "OK: rotas financeiro e convidados no bundle"
 '
 
 echo "--- Boot real (env de producao do .env) ---"

@@ -15,7 +15,10 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
 FROM base AS builder
+ARG GIT_REVISION=unknown
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+# Invalida cache do COPY apps/api quando o codigo muda (git pull + rebuild)
+RUN echo "git-revision=${GIT_REVISION}" >/tmp/.build-revision
 COPY apps/api ./apps/api
 COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared

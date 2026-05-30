@@ -163,7 +163,7 @@ Configure no painel do provedor apontando para a **API**:
 | verify OK mas Swarm com `server.mjs` | Mesma tag `:latest` — `stack-deploy-app.sh` cria tag `deploy-YYYYMMDD-HHMMSS` |
 | `No such image: ...@sha256` | Nao use `@sha256` em imagem local; use tag unica (`rachao-api:deploy-...`) |
 | `update out of sequence` (Swarm) | Conflito entre `stack deploy` e `service update` — rode `./stack-deploy-app.sh` de novo (script aguarda + retry) ou manualmente: `docker service update --force --detach=false rachao-app_rachao-web` apos API convergir |
-| Convidados / Financeiro "Nao foi possivel carregar" | Schema desatualizado — rode `./run-migrate.sh` (ou `./redeploy-app.sh`, que ja inclui migrate). Confira logs: `docker service logs rachao-app_rachao-api --tail 30` (ex.: `ConvidadoGrupo` does not exist) |
+| Convidados / Financeiro "Nao foi possivel carregar" | Veja logs da API: **404** = imagem API antiga (Docker cache no build) — `docker build --no-cache -f Dockerfile.api ...` + `./stack-deploy-app.sh`. **500** = schema desatualizado — `./run-migrate.sh` |
 
 **Fluxo unico que funciona:** `git pull` → `docker build` → `./verify-api-image.sh` → `./stack-deploy-app.sh`
 

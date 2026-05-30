@@ -9,6 +9,9 @@ ENV_FILE="${SCRIPT_DIR}/.env"
 # shellcheck source=lib/env.sh
 source "$SCRIPT_DIR/lib/env.sh"
 
+GIT_REVISION="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || date +%s)"
+export GIT_REVISION
+
 env_load_file "$ENV_FILE" \
   CR_IMAGE_WEB CR_IMAGE_API CR_IMAGE_MIGRATE \
   NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY \
@@ -25,7 +28,9 @@ MIGRATE_IMAGE="${CR_IMAGE_MIGRATE:-rachao-migrate:latest}"
 : "${NEXT_PUBLIC_APP_URL:?Defina NEXT_PUBLIC_APP_URL}"
 
 echo "==> Build API: $API_IMAGE"
-docker build -f "$SCRIPT_DIR/Dockerfile.api" -t "$API_IMAGE" "$REPO_ROOT"
+docker build -f "$SCRIPT_DIR/Dockerfile.api" \
+  --build-arg "GIT_REVISION=${GIT_REVISION:-unknown}" \
+  -t "$API_IMAGE" "$REPO_ROOT"
 
 echo "==> Build Web: $WEB_IMAGE"
 docker build -f "$SCRIPT_DIR/Dockerfile.web" -t "$WEB_IMAGE" "$REPO_ROOT" \
