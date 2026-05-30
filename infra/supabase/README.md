@@ -48,16 +48,33 @@ Apos ~30s o stack estara disponivel:
 
 ## Variaveis de ambiente para o app
 
-As chaves abaixo (do `.env.example`) ja estao validas para dev. Cole no
-`apps/web/.env.local` e `apps/api/.env`:
+As chaves **precisam ser assinadas com o mesmo `JWT_SECRET`** do `infra/supabase/.env`.
+Gere com:
+
+```powershell
+node infra/supabase/scripts/generate-jwt-keys.mjs
+```
+
+Copie `ANON_KEY` e `SERVICE_ROLE_KEY` para `infra/supabase/.env`, `apps/api/.env`
+(`SUPABASE_SERVICE_ROLE_KEY`) e `apps/web/.env.local` (`NEXT_PUBLIC_SUPABASE_ANON_KEY`).
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=http://localhost:8000
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE2NDE3NjkyMDAsImV4cCI6MTc5OTUzNTYwMH0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtZGVtbyIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoxNzk5NTM1NjAwfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q
 SUPABASE_JWT_SECRET=super-secret-jwt-token-with-at-least-32-characters-long
 DATABASE_URL=postgresql://supabase_admin:rachao-dev-password-change-me@127.0.0.1:15432/postgres?schema=public
 ```
+
+### Storage (upload de fotos)
+
+Depois do primeiro `pnpm supabase:up`, rode os scripts SQL:
+
+```powershell
+Get-Content infra/supabase/scripts/fix-storage-grants.sql | docker exec -i rachao-supabase-db psql -U supabase_admin -d postgres
+Get-Content infra/supabase/scripts/storage-rls.sql | docker exec -i rachao-supabase-db psql -U supabase_admin -d postgres
+```
+
+Se o upload retornar `invalid signature`, regenere as chaves JWT (passo acima) e reinicie
+`pnpm supabase:down && pnpm supabase:up`.
 
 ---
 

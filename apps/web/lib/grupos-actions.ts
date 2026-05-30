@@ -165,3 +165,51 @@ export async function archiveBoleiro(grupoId: string, boleiroId: string) {
     { method: 'DELETE', token: await token() },
   );
 }
+
+export async function convidarBoleiro(
+  grupoId: string,
+  input: { celular?: string; email?: string | null; canalPreferido?: 'whatsapp' | 'email' | 'sms' },
+) {
+  return apiFetch<{
+    convite: { id: string; token: string; status: string };
+    linkCadastro: string;
+    whatsappLink: string | null;
+    mensagemWhatsApp: string;
+  }>(`/api/grupos/${grupoId}/boleiros/convidar`, {
+    method: 'POST',
+    token: await token(),
+    body: input,
+  });
+}
+
+export async function listConvidadosGrupo(grupoId: string) {
+  return apiFetch<{ convidados: import('@/lib/types').ConvidadoGrupoItem[] }>(
+    `/api/grupos/${grupoId}/convidados`,
+    { token: await token() },
+  );
+}
+
+export async function addConvidadoGrupo(
+  grupoId: string,
+  input: import('@rachao/shared/zod').ConvidadoGrupoCreateInput,
+) {
+  return apiFetch<{ convidado: { id: string; nome: string }; convidadoGrupoId?: string }>(
+    `/api/grupos/${grupoId}/convidados`,
+    { method: 'POST', token: await token(), body: input },
+  );
+}
+
+export async function promoverConvidadoGrupo(grupoId: string, convidadoGrupoId: string) {
+  return apiFetch<{ boleiro: BoleiroListItem }>(
+    `/api/grupos/${grupoId}/convidados/${convidadoGrupoId}/promover`,
+    { method: 'POST', token: await token() },
+  );
+}
+
+export async function getGrupoFinanceiro(grupoId: string, mes?: string) {
+  const qs = mes ? `?mes=${encodeURIComponent(mes)}` : '';
+  return apiFetch<import('@/lib/types').GrupoFinanceiroData>(
+    `/api/grupos/${grupoId}/financeiro${qs}`,
+    { token: await token() },
+  );
+}

@@ -5,11 +5,12 @@ import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Search, Trash2 } from 'lucide-react';
+import { Search, Trash2, Copy, MessageCircle } from 'lucide-react';
 import { POSICOES, type Posicao } from '@rachao/shared/enums';
 import { ApiError } from '@/lib/api';
 import {
   archiveBoleiro,
+  convidarBoleiro,
   createBoleiro,
   lookupBoleiroPorCelular,
   updateBoleiro,
@@ -88,8 +89,16 @@ export function BoleiroFormDialog({
    * convidado avulso global usa o cadastro como semente, e caso contrario
    * abre o formulario completo com o celular preenchido.
    */
-  type Step = 'busca' | 'form';
+  type Step = 'busca' | 'form' | 'convidar' | 'convite_ok';
   const [step, setStep] = useState<Step>(isEdit ? 'form' : 'busca');
+  const [modo, setModo] = useState<'convidar' | 'manual'>('convidar');
+  const [canal, setCanal] = useState<'whatsapp' | 'email' | 'sms'>('whatsapp');
+  const [convidarEmail, setConvidarEmail] = useState('');
+  const [conviteResult, setConviteResult] = useState<{
+    linkCadastro: string;
+    whatsappLink: string | null;
+    mensagemWhatsApp: string;
+  } | null>(null);
   const [search, setSearch] = useState('');
   const [searching, setSearching] = useState(false);
   const [hitBoleiro, setHitBoleiro] = useState<BoleiroListItem | null>(null);
@@ -117,6 +126,9 @@ export function BoleiroFormDialog({
       email: boleiro?.email ?? '',
     });
     setStep(isEdit ? 'form' : 'busca');
+    setModo('convidar');
+    setConviteResult(null);
+    setConvidarEmail('');
     setSearch('');
     setHitBoleiro(null);
     setHitConvidado(null);
@@ -172,6 +184,40 @@ export function BoleiroFormDialog({
     setStep('form');
   }
 
+  async function enviarConvite() {
+    const cel = unmaskCelular(search);
+    if (canal === 'email' && !convidarEmail.trim()) {
+      setSearchErro('Informe o e-mail para enviar convite.');
+      return;
+    }
+    if (canal !== 'email' && cel.length !== 11) {
+      setSearchErro('Informe WhatsApp com 11 dígitos.');
+      return;
+    }
+    setSearching(true);
+    setSearchErro(null);
+    try {
+      const res = await convidarBoleiro(grupoId, {
+        celular: cel.length === 11 ? cel : undefined,
+        email: convidarEmail.trim() || undefined,
+        canalPreferido: canal,
+      });
+      setConviteResult({
+        linkCadastro: res.linkCadastro,
+        whatsappLink: res.whatsappLink,
+        mensagemWhatsApp: res.mensagemWhatsApp,
+      });
+      setStep('convite_ok');
+      toast.success('Convite criado.');
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      if (status === 409) toast.error('Já existe boleiro ou convite pendente para este contato.');
+      else toast.error('Não foi possível enviar convite.');
+    } finally {
+      setSearching(false);
+    }
+  }
+
   async function onSubmit(values: FormValues) {
     try {
       const payload = {
@@ -220,9 +266,18 @@ export function BoleiroFormDialog({
 
         {!isEdit && step === 'busca' ? (
           <div className="space-y-4">
+            <Segmented
+              value={modo}
+              onChange={setModo}
+              options={[
+                { value: 'convidar', label: 'Enviar convite' },
+                { value: 'manual', label: 'Cadastrar manual' },
+              ]}
+            />
             <p className="text-sm text-muted">
-              Comece pelo WhatsApp do boleiro. Buscamos primeiro se já existe no grupo ou se já
-              jogou como convidado avulso.
+              {modo === 'convidar'
+                ? 'O boleiro recebe um link para completar cadastro e enviar foto.'
+                : 'Comece pelo WhatsApp do boleiro. Buscamos se já existe no grupo ou como convidado.'}
             </p>
 
             <Field label="WhatsApp" error={searchErro ?? undefined}>
@@ -239,18 +294,52 @@ export function BoleiroFormDialog({
                   }}
                   autoFocus
                 />
-                <Button
-                  type="button"
-                  onClick={buscarPorCelular}
-                  disabled={searching || unmaskCelular(search).length !== 11}
-                >
-                  {searching ? <Spinner size={14} /> : <Search size={16} />}
-                  Buscar
-                </Button>
+                {modo === 'manual' ? (
+                  <Button
+                    type="button"
+                    onClick={buscarPorCelular}
+                    disabled={searching || unmaskCelular(search).length !== 11}
+                  >
+                    {searching ? <Spinner size={14} /> : <Search size={16} />}
+                    Buscar
+                  </Button>
+                ) : null}
               </div>
             </Field>
 
-            {hitBoleiro ? (
+            {modo === 'convidar' ? (
+              <>
+                <Field label="E-mail (se canal = e-mail)">
+                  <Input
+                    type="email"
+                    value={convidarEmail}
+                    onChange={(e) => setConvidarEmail(e.target.value)}
+                  />
+                </Field>
+                <Field label="Canal de envio">
+                  <Segmented
+                    value={canal}
+                    onChange={(v) => setCanal(v as typeof canal)}
+                    options={[
+                      { value: 'whatsapp', label: 'WhatsApp' },
+                      { value: 'email', label: 'E-mail' },
+                      { value: 'sms', label: 'SMS (em breve)' },
+                    ]}
+                  />
+                </Field>
+                <Button
+                  type="button"
+                  className="w-full"
+                  onClick={enviarConvite}
+                  disabled={searching || canal === 'sms'}
+                >
+                  {searching ? <Spinner size={14} /> : null}
+                  Gerar link de cadastro
+                </Button>
+              </>
+            ) : null}
+
+            {modo === 'manual' && hitBoleiro ? (
               <div className="rounded-md border border-warning/40 bg-warning-highlight p-3 text-sm">
                 <div className="flex items-start gap-3">
                   <Avatar name={hitBoleiro.nome} size="sm" />
@@ -273,7 +362,7 @@ export function BoleiroFormDialog({
               </div>
             ) : null}
 
-            {!hitBoleiro && hitConvidado ? (
+            {modo === 'manual' && !hitBoleiro && hitConvidado ? (
               <div className="rounded-md border border-info/30 bg-info-highlight p-3 text-sm">
                 <div className="flex items-start gap-3">
                   <Avatar name={hitConvidado.nome} size="sm" />
@@ -298,11 +387,43 @@ export function BoleiroFormDialog({
               </div>
             ) : null}
 
-            {!hitBoleiro && !hitConvidado && unmaskCelular(search).length === 11 && !searching ? (
+            {modo === 'manual' && !hitBoleiro && !hitConvidado && unmaskCelular(search).length === 11 && !searching ? (
               <Button type="button" variant="outline" onClick={abrirFormularioVazio} className="w-full">
                 Não encontrado — cadastrar novo
               </Button>
             ) : null}
+          </div>
+        ) : !isEdit && step === 'convite_ok' && conviteResult ? (
+          <div className="space-y-4">
+            <p className="text-sm text-muted">
+              Compartilhe o link para o boleiro completar cadastro e enviar foto.
+            </p>
+            <Field label="Link de cadastro">
+              <div className="flex gap-2">
+                <Input readOnly value={conviteResult.linkCadastro} />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(conviteResult.linkCadastro);
+                    toast.success('Link copiado.');
+                  }}
+                >
+                  <Copy size={16} />
+                </Button>
+              </div>
+            </Field>
+            {conviteResult.whatsappLink ? (
+              <Button type="button" className="w-full" asChild>
+                <a href={conviteResult.whatsappLink} target="_blank" rel="noreferrer">
+                  <MessageCircle size={16} /> Abrir WhatsApp
+                </a>
+              </Button>
+            ) : null}
+            <Button type="button" variant="ghost" className="w-full" onClick={() => onOpenChange(false)}>
+              Fechar
+            </Button>
           </div>
         ) : (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">

@@ -22,6 +22,7 @@ export interface DashboardInsights {
   partidasPrevistas: number;
   partidasEncerradas: number;
   mediaGolsPorPartida: number;
+  mediaGolsPorJogo: number;
   topArtilheiros: DashboardRankingJogador[];
   topCartoes: Array<
     DashboardRankingJogador & { amarelos: number; vermelhos: number }
@@ -39,6 +40,7 @@ export async function agregarDashboardInsights(
     partidasPrevistas: 0,
     partidasEncerradas: 0,
     mediaGolsPorPartida: 0,
+    mediaGolsPorJogo: 0,
     topArtilheiros: [],
     topCartoes: [],
     timeMaisVenceu: null,
@@ -54,6 +56,7 @@ export async function agregarDashboardInsights(
       id: true,
       status: true,
       grupoId: true,
+      numPartidas: true,
       aoVivoEstado: true,
       grupo: { select: { nome: true } },
       times: { select: { id: true, nome: true, cor: true, golsFinal: true } },
@@ -78,6 +81,7 @@ export async function agregarDashboardInsights(
   const vitoriasPorTime = new Map<string, { nome: string; cor: string; v: number }>();
   let totalGolsPartidas = 0;
   let partidasComGols = 0;
+  let totalJogos = 0;
 
   function bumpGol(boleiroId: string, grupoId: string, n = 1) {
     const cur = golsPorBoleiro.get(boleiroId) ?? { gols: 0, grupoId };
@@ -143,16 +147,20 @@ export async function agregarDashboardInsights(
       }
 
       let golsPartida = 0;
+      let jogosPartida = 0;
 
       if (p.status === 'encerrada') {
         for (const t of p.times) {
           golsPartida += t.golsFinal ?? 0;
         }
+        jogosPartida = p.numPartidas;
         const max = Math.max(...p.times.map((t) => t.golsFinal ?? 0), 0);
         const winners = p.times.filter((t) => (t.golsFinal ?? 0) === max && max > 0);
         if (winners.length === 1) registrarVitoria(winners[0]!.id, p.times);
       } else {
-        for (const r of estado?.resultados ?? []) {
+        const resultados = estado?.resultados ?? [];
+        jogosPartida = resultados.length;
+        for (const r of resultados) {
           golsPartida += r.golsA + r.golsB;
           if (r.golsA > r.golsB) registrarVitoria(r.timeAId, p.times);
           else if (r.golsB > r.golsA) registrarVitoria(r.timeBId, p.times);
@@ -165,6 +173,7 @@ export async function agregarDashboardInsights(
       if (golsPartida > 0) {
         totalGolsPartidas += golsPartida;
         partidasComGols++;
+        totalJogos += Math.max(jogosPartida, 1);
       }
     }
   }
@@ -327,6 +336,10 @@ export async function agregarDashboardInsights(
     mediaGolsPorPartida:
       partidasComGols > 0
         ? Math.round((totalGolsPartidas / partidasComGols) * 10) / 10
+        : 0,
+    mediaGolsPorJogo:
+      totalJogos > 0
+        ? Math.round((totalGolsPartidas / totalJogos) * 10) / 10
         : 0,
     topArtilheiros,
     topCartoes,

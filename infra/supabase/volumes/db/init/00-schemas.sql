@@ -124,7 +124,24 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO supabase_stora
 ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON FUNCTIONS TO supabase_storage_admin;
 ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON SEQUENCES TO supabase_storage_admin;
 GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
+GRANT SELECT ON ALL TABLES IN SCHEMA storage TO anon, authenticated;
+GRANT INSERT, UPDATE, DELETE ON storage.objects TO authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA storage TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT SELECT ON TABLES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT INSERT, UPDATE, DELETE ON TABLES TO authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA storage GRANT ALL ON TABLES TO service_role;
 
 -- Storage API roda migrations contra o database configurado em DATABASE_URL.
 -- Sem privilegios suficientes no database alvo, o container entra em loop com 42501.
 GRANT CREATE, CONNECT, TEMPORARY ON DATABASE postgres TO supabase_storage_admin;
+
+-- Storage API troca de role via JWT (anon / authenticated / service_role)
+GRANT anon TO supabase_storage_admin;
+GRANT authenticated TO supabase_storage_admin;
+GRANT service_role TO supabase_storage_admin;
+
+-- Apos SET ROLE, o search_path do login some — Storage consulta "buckets" no schema storage.
+ALTER ROLE anon SET search_path TO storage, public, extensions;
+ALTER ROLE authenticated SET search_path TO storage, public, extensions;
+ALTER ROLE service_role SET search_path TO storage, public, extensions;

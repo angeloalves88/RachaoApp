@@ -31,6 +31,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Fab } from '@/components/layout/fab';
 import { BoleiroFormDialog } from '@/components/boleiros/boleiro-form-dialog';
 import { BoleiroFichaSheet } from '@/components/boleiros/boleiro-ficha-sheet';
+import { ConvidadosGrupoTab } from '@/components/convidados/convidados-grupo-tab';
+import { GrupoFinanceiroTab } from '@/components/grupos/grupo-financeiro-tab';
 import {
   archiveBoleiro,
   getEstatisticasGrupo,
@@ -48,24 +50,33 @@ import type {
 
 type StatusFilter = 'ativos' | 'arquivados' | 'todos';
 
+type GrupoTab = 'boleiros' | 'convidados' | 'partidas' | 'estatisticas' | 'financeiro';
+
 interface Props {
   grupoId: string;
   initialBoleiros: BoleiroListItem[];
+  initialTab?: GrupoTab;
 }
 
-export function GrupoTabs({ grupoId, initialBoleiros }: Props) {
-  const [tab, setTab] = useState<'boleiros' | 'partidas' | 'estatisticas'>('boleiros');
+export function GrupoTabs({ grupoId, initialBoleiros, initialTab = 'boleiros' }: Props) {
+  const [tab, setTab] = useState<GrupoTab>(initialTab);
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
-      <TabsList>
+      <TabsList className="flex flex-wrap h-auto gap-1">
         <TabsTrigger value="boleiros">Boleiros</TabsTrigger>
+        <TabsTrigger value="convidados">Convidados</TabsTrigger>
         <TabsTrigger value="partidas">Partidas</TabsTrigger>
         <TabsTrigger value="estatisticas">Estatísticas</TabsTrigger>
+        <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
       </TabsList>
 
       <TabsContent value="boleiros">
         <BoleirosTab grupoId={grupoId} initial={initialBoleiros} />
+      </TabsContent>
+
+      <TabsContent value="convidados">
+        <ConvidadosGrupoTab grupoId={grupoId} />
       </TabsContent>
 
       <TabsContent value="partidas">
@@ -74,6 +85,10 @@ export function GrupoTabs({ grupoId, initialBoleiros }: Props) {
 
       <TabsContent value="estatisticas">
         <EstatisticasTab grupoId={grupoId} />
+      </TabsContent>
+
+      <TabsContent value="financeiro">
+        <GrupoFinanceiroTab grupoId={grupoId} />
       </TabsContent>
     </Tabs>
   );
@@ -640,7 +655,7 @@ function BoleiroRow({
         onClick={onClick}
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
       >
-        <Avatar name={boleiro.nome} size="md" />
+        <Avatar name={boleiro.nome} src={boleiro.fotoUrl} size="md" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <p className="truncate font-medium">{boleiro.nome}</p>

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { CalendarDays, ChevronRight, Goal, TrendingUp, Trophy, Users } from 'lucide-react';
+import { CalendarDays, ChevronRight, Goal, TrendingUp, Trophy, Users, Wallet } from 'lucide-react';
 import { COR_HEX } from '@/lib/escalacao-ui';
 import type { CorTime } from '@rachao/shared/zod';
 import type { DashboardSummary } from '@/lib/types';
@@ -60,9 +60,9 @@ export function DashboardInsightsGrid({ data, nome }: Props) {
           />
           <MetricCard
             icon={<Goal className="h-5 w-5 text-success" />}
-            label="Média de gols"
-            value={insights.mediaGolsPorPartida > 0 ? String(insights.mediaGolsPorPartida) : '—'}
-            hint="Por partida com gols"
+            label="Média de gols por jogo"
+            value={insights.mediaGolsPorJogo > 0 ? String(insights.mediaGolsPorJogo) : '—'}
+            hint="Por confronto na pelada"
           />
         </div>
       </div>
@@ -139,7 +139,7 @@ export function DashboardInsightsGrid({ data, nome }: Props) {
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <NavPanel
           href="/grupos"
           icon={<Users className="h-6 w-6" />}
@@ -151,6 +151,12 @@ export function DashboardInsightsGrid({ data, nome }: Props) {
           icon={<TrendingUp className="h-6 w-6" />}
           title="Histórico de partidas"
           description={`${insights.partidasEncerradas} encerrada${insights.partidasEncerradas === 1 ? '' : 's'}`}
+        />
+        <NavPanel
+          href="/financeiro"
+          icon={<Wallet className="h-6 w-6" />}
+          title="Financeiro"
+          description="Pagamentos, mensalidades e convidados"
         />
       </div>
 

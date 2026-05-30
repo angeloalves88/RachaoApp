@@ -214,6 +214,7 @@ export function PresencasClient({ partida }: Props) {
             <div className="flex flex-wrap gap-2 pt-1">
               <ConvidadoAvulsoDialog
                 partidaId={partida.id}
+                grupoId={partida.grupo.id}
                 onAdded={() => startTransition(() => router.refresh())}
               />
               <Button

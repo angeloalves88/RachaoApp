@@ -12,6 +12,7 @@ const INSIGHTS_VAZIOS: DashboardInsights = {
   partidasPrevistas: 0,
   partidasEncerradas: 0,
   mediaGolsPorPartida: 0,
+  mediaGolsPorJogo: 0,
   topArtilheiros: [],
   topCartoes: [],
   timeMaisVenceu: null,

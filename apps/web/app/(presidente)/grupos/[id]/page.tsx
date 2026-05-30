@@ -31,10 +31,17 @@ const NIVEL_LABEL: Record<string, string> = {
 
 export default async function GrupoDetalhePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { id } = await params;
+  const { tab: tabParam } = await searchParams;
+  const tabsValidos = ['boleiros', 'convidados', 'partidas', 'estatisticas', 'financeiro'] as const;
+  const initialTab = tabsValidos.includes(tabParam as (typeof tabsValidos)[number])
+    ? (tabParam as (typeof tabsValidos)[number])
+    : 'boleiros';
   const data = await apiFetchServerSafe<{ grupo: GrupoDetalhe }>(`/api/grupos/${id}`);
   if (!data) notFound();
   const grupo = data.grupo;
@@ -114,7 +121,7 @@ export default async function GrupoDetalhePage({
       </header>
 
       <div className="container">
-        <GrupoTabs grupoId={grupo.id} initialBoleiros={boleirosResp.boleiros} />
+        <GrupoTabs grupoId={grupo.id} initialBoleiros={boleirosResp.boleiros} initialTab={initialTab} />
       </div>
     </div>
   );

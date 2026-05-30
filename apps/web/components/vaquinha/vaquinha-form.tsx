@@ -137,8 +137,27 @@ export function VaquinhaForm({
           />
           Mesmo valor para convidados avulsos
         </label>
-      ) : numConvidados > 0 ? (
-        <Field label="Valor (convidados avulsos) — mensalidade">
+      ) : (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={value.mesmoValor}
+            onChange={(e) => onChange({ mesmoValor: e.target.checked })}
+            className="h-4 w-4 rounded border-border bg-surface-2 text-primary focus:ring-primary"
+          />
+          Convidados pagam o mesmo valor dos boleiros fixos
+        </label>
+      )}
+
+      {isMensal ? (
+        <Field
+          label="Valor por convidado avulso (mensalidade)"
+          hint={
+            numConvidados > 0
+              ? `${numConvidados} convidado(s) nesta partida.`
+              : 'Defina agora — vale para convidados que entrarem depois.'
+          }
+        >
           <div className="relative">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">
               R$
@@ -149,7 +168,8 @@ export function VaquinhaForm({
               min={0}
               step="0.01"
               className="pl-9"
-              value={value.valorConvidadoAvulso}
+              disabled={value.mesmoValor}
+              value={value.mesmoValor ? value.valorBoleiroFixo : value.valorConvidadoAvulso}
               onChange={(e) => onChange({ valorConvidadoAvulso: Number(e.target.value || 0) })}
             />
           </div>

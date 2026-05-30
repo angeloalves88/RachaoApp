@@ -1,13 +1,18 @@
 'use client';
 
+import { useState } from 'react';
+import { Repeat, Upload } from 'lucide-react';
+import { toast } from 'sonner';
 import { Field } from '@/components/ui/field';
 import { DatePicker } from '@/components/ui/date-picker';
 import { TimePicker } from '@/components/ui/time-picker';
 import { NumberStepper } from '@/components/ui/number-stepper';
 import { Segmented } from '@/components/ui/segmented';
 import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
+import { Avatar } from '@/components/ui/avatar';
+import { uploadTimeLogoDraft, UploadError } from '@/lib/storage';
 import { useWizardStore } from './wizard-store';
-import { Repeat } from 'lucide-react';
 import type { TipoCobranca } from '@rachao/shared/enums';
 import { CORES_TIME, type CorTime } from '@rachao/shared/zod';
 
@@ -28,6 +33,7 @@ const COR_LABELS: Record<CorTime, string> = {
 
 export function Step1Dados() {
   const state = useWizardStore();
+  const [uploadingLogoIndex, setUploadingLogoIndex] = useState<number | null>(null);
   const semTitulares = state.boleirosPorTime === 0;
   const reservasIlimitadas = semTitulares || state.reservasPorTime === 0;
   const totalTitulares = state.numTimes * state.boleirosPorTime;
@@ -106,10 +112,41 @@ export function Step1Dados() {
       </Field>
 
       <div className="space-y-3 rounded-lg border border-border bg-surface p-4">
-        <p className="text-sm font-medium">Times — nome e cor</p>
+        <p className="text-sm font-medium">Times — nome, cor e logo (opcional)</p>
         <div className="grid gap-3 sm:grid-cols-2">
           {state.timesMeta.map((t, i) => (
             <div key={i} className="flex flex-col gap-2 rounded-md border border-border bg-surface-2 p-3">
+              <div className="flex items-center gap-2">
+                <Avatar name={t.nome || `Time ${i + 1}`} src={t.logoUrl ?? undefined} size="sm" />
+                <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-primary">
+                  {uploadingLogoIndex === i ? <Spinner size={12} /> : <Upload size={12} />}
+                  Logo
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    disabled={!state.grupoId || uploadingLogoIndex != null}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !state.grupoId) return;
+                      setUploadingLogoIndex(i);
+                      try {
+                        const url = await uploadTimeLogoDraft(file, state.grupoId, i);
+                        const timesMeta = [...state.timesMeta];
+                        timesMeta[i] = { ...timesMeta[i]!, logoUrl: url };
+                        state.patch({ timesMeta });
+                        toast.success(`Logo do time ${i + 1} enviado.`);
+                      } catch (err) {
+                        toast.error(
+                          err instanceof UploadError ? err.message : 'Falha no upload do logo.',
+                        );
+                      } finally {
+                        setUploadingLogoIndex(null);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
               <Input
                 value={t.nome}
                 onChange={(e) => {

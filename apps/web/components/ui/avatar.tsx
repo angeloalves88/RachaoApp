@@ -39,17 +39,29 @@ const sizeClasses = {
   xl: 'h-20 w-20 text-2xl',
 } as const;
 
+const DEFAULT_AVATAR = '/images/avatar-default.svg';
+
 interface AvatarProps {
   src?: string | null;
   alt?: string;
   name: string;
   size?: keyof typeof sizeClasses;
   className?: string;
+  /** Quando true (padrao), usa silhueta se nao houver src. */
+  useDefaultImage?: boolean;
 }
 
-export function Avatar({ src, alt, name, size = 'md', className }: AvatarProps) {
+export function Avatar({
+  src,
+  alt,
+  name,
+  size = 'md',
+  className,
+  useDefaultImage = true,
+}: AvatarProps) {
   const initials = initialsFromName(name);
   const color = colorForName(name);
+  const imageSrc = src || (useDefaultImage ? DEFAULT_AVATAR : undefined);
 
   return (
     <AvatarPrimitive.Root
@@ -59,15 +71,15 @@ export function Avatar({ src, alt, name, size = 'md', className }: AvatarProps) 
         className,
       )}
     >
-      {src ? (
+      {imageSrc ? (
         <AvatarPrimitive.Image
-          src={src}
+          src={imageSrc}
           alt={alt ?? name}
           className="h-full w-full object-cover"
         />
       ) : null}
       <AvatarPrimitive.Fallback
-        delayMs={src ? 200 : 0}
+        delayMs={imageSrc ? 200 : 0}
         className={cn('flex h-full w-full items-center justify-center', color)}
       >
         {initials}

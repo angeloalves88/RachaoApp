@@ -4,8 +4,9 @@
  * Por partida: cria Pagamento apenas para convites `confirmado` (cobranca so
  * apos confirmacao — PRD v1.2).
  *
- * Mensalidade: cria Pagamento para todos os boleiros fixos ativos do grupo
- * (com dedupe por grupo + mesReferencia + boleiro em qualquer partida do mes).
+ * Mensalidade: cria Pagamento para boleiros fixos ativos elegiveis no mes
+ * (mes >= max(criacao do grupo, cadastro do boleiro), fuso America/Sao_Paulo).
+ * Dedupe por grupo + mesReferencia + boleiro em qualquer partida do mes.
  * Convidados avulsos continuam vinculados ao convite confirmado desta partida.
  *
  * Inadimplencia: `dataLimitePagamento` para fixos na mensalidade; convidados
@@ -35,7 +36,30 @@ export function mesReferenciaBr(d: Date): string {
   }).format(d);
 }
 
-/** Ultimo instante do calendario do mes AAAA-MM (mes 1-12 no string). */
+/** Mes AAAA-MM mais recente entre duas datas (fuso America/Sao_Paulo). */
+export function mesReferenciaMaisRecente(a: Date, b: Date): string {
+  const mesA = mesReferenciaBr(a);
+  const mesB = mesReferenciaBr(b);
+  return mesA >= mesB ? mesA : mesB;
+}
+
+/** Primeiro mes (AAAA-MM) em que o boleiro fixo deve pagar mensalidade no grupo. */
+export function mesInicioMensalidadeBoleiro(
+  grupoCriadoEm: Date,
+  boleiroCriadoEm: Date,
+): string {
+  return mesReferenciaMaisRecente(grupoCriadoEm, boleiroCriadoEm);
+}
+
+/** Boleiro fixo deve ser cobrado na mensalidade deste mes de referencia? */
+export function boleiroElegivelMensalidadeMes(
+  mesReferencia: string,
+  grupoCriadoEm: Date,
+  boleiroCriadoEm: Date,
+): boolean {
+  return mesReferencia >= mesInicioMensalidadeBoleiro(grupoCriadoEm, boleiroCriadoEm);
+}
+
 export function ultimoInstanteMesReferencia(mesReferencia: string): Date {
   const [y, m] = mesReferencia.split('-').map(Number);
   if (!y || !m || m < 1 || m > 12) return new Date();
@@ -73,76 +97,127 @@ export async function existeMensalidadeFixoNoGrupoMes(
   return !!found;
 }
 
-export async function sincronizarPagamentos(
-  tx: TxClient,
-  vaquinhaId: string,
-): Promise<{ criados: number; marcadosInadimplente: number }> {
-  const vaq = await tx.vaquinha.findUnique({
-    where: { id: vaquinhaId },
+const vaquinhaSyncSelect = {
+  id: true,
+  partidaId: true,
+  tipo: true,
+  mesReferencia: true,
+  valorBoleiroFixo: true,
+  valorConvidadoAvulso: true,
+  dataLimitePagamento: true,
+  dataLimitePagamentoConvidados: true,
+  partida: {
     select: {
       id: true,
-      partidaId: true,
-      tipo: true,
-      mesReferencia: true,
-      valorBoleiroFixo: true,
-      valorConvidadoAvulso: true,
-      dataLimitePagamento: true,
-      dataLimitePagamentoConvidados: true,
-      partida: {
-        select: {
-          id: true,
-          grupoId: true,
-          dataHora: true,
-          tipoCobranca: true,
-        },
-      },
+      grupoId: true,
+      dataHora: true,
+      tipoCobranca: true,
+      grupo: { select: { criadoEm: true } },
     },
-  });
-  if (!vaq) return { criados: 0, marcadosInadimplente: 0 };
+  },
+} as const;
 
+type VaquinhaSync = NonNullable<
+  Awaited<ReturnType<TxClient['vaquinha']['findUnique']>>
+> & {
+  partida: {
+    id: string;
+    grupoId: string;
+    dataHora: Date;
+    tipoCobranca: string;
+    grupo: { criadoEm: Date };
+  };
+};
+
+interface PagamentosFaltantes {
+  fixos: string[];
+  convidadosAvulsos: string[];
+  porPartida: Array<{
+    boleiroGrupoId: string | null;
+    convidadoAvulsoId: string | null;
+    tipoPagador: 'fixo' | 'convidado_avulso';
+    valorCobrado: Prisma.Decimal;
+  }>;
+}
+
+async function carregarVaquinhaSync(
+  tx: TxClient,
+  vaquinhaId: string,
+): Promise<VaquinhaSync | null> {
+  return tx.vaquinha.findUnique({
+    where: { id: vaquinhaId },
+    select: vaquinhaSyncSelect,
+  }) as Promise<VaquinhaSync | null>;
+}
+
+async function calcularPagamentosFaltantes(
+  tx: TxClient,
+  vaq: VaquinhaSync,
+): Promise<PagamentosFaltantes> {
   const partida = vaq.partida;
   const mesRef =
     vaq.tipo === 'mensalidade'
       ? (vaq.mesReferencia ?? mesReferenciaBr(partida.dataHora))
       : null;
 
-  let criados = 0;
+  const faltantes: PagamentosFaltantes = {
+    fixos: [],
+    convidadosAvulsos: [],
+    porPartida: [],
+  };
 
   if (vaq.tipo === 'mensalidade') {
+    const grupoCriadoEm = partida.grupo.criadoEm;
     const fixos = await tx.boleiroGrupo.findMany({
       where: { grupoId: partida.grupoId, status: 'ativo' },
-      select: { id: true },
+      select: { id: true, criadoEm: true },
     });
+    const fixoIds =
+      mesRef != null
+        ? fixos
+            .filter((f) => boleiroElegivelMensalidadeMes(mesRef, grupoCriadoEm, f.criadoEm))
+            .map((f) => f.id)
+        : fixos.map((f) => f.id);
 
-    for (const bg of fixos) {
-      const existeNesta = await tx.pagamento.findFirst({
-        where: { vaquinhaId: vaq.id, boleiroGrupoId: bg.id },
-        select: { id: true },
-      });
-      if (existeNesta) continue;
+    const pagamentosNaVaquinha =
+      fixoIds.length === 0
+        ? []
+        : await tx.pagamento.findMany({
+            where: {
+              vaquinhaId: vaq.id,
+              tipoPagador: 'fixo',
+              boleiroGrupoId: { in: fixoIds },
+            },
+            select: { boleiroGrupoId: true },
+          });
 
-      if (
-        mesRef &&
-        (await existeMensalidadeFixoNoGrupoMes(tx, {
-          grupoId: partida.grupoId,
-          mesReferencia: mesRef,
-          boleiroGrupoId: bg.id,
-        }))
-      ) {
-        continue;
-      }
+    const comPagNaVaquinha = new Set(
+      pagamentosNaVaquinha
+        .map((p) => p.boleiroGrupoId)
+        .filter((id): id is string => id != null),
+    );
+    const missingNaVaquinha = fixoIds.filter((id) => !comPagNaVaquinha.has(id));
 
-      await tx.pagamento.create({
-        data: {
-          vaquinhaId: vaq.id,
-          boleiroGrupoId: bg.id,
-          convidadoAvulsoId: null,
+    if (missingNaVaquinha.length > 0 && mesRef) {
+      const dedupe = await tx.pagamento.findMany({
+        where: {
           tipoPagador: 'fixo',
-          valorCobrado: vaq.valorBoleiroFixo,
-          status: 'pendente',
+          boleiroGrupoId: { in: missingNaVaquinha },
+          status: { in: ['pendente', 'pago'] },
+          vaquinha: {
+            tipo: 'mensalidade',
+            mesReferencia: mesRef,
+            partida: { grupoId: partida.grupoId },
+          },
         },
+        select: { boleiroGrupoId: true },
       });
-      criados++;
+      const dedupeIds = new Set(
+        dedupe.map((p) => p.boleiroGrupoId).filter((id): id is string => id != null),
+      );
+      faltantes.fixos = missingNaVaquinha.filter((id) => !dedupeIds.has(id));
+    } else {
+      faltantes.fixos = missingNaVaquinha;
     }
 
     const convitesConv = await tx.convitePartida.findMany({
@@ -152,72 +227,155 @@ export async function sincronizarPagamentos(
         status: 'confirmado',
         convidadoAvulsoId: { not: null },
       },
-      select: { id: true, convidadoAvulsoId: true },
+      select: { convidadoAvulsoId: true },
     });
+    const convIds = convitesConv
+      .map((c) => c.convidadoAvulsoId)
+      .filter((id): id is string => id != null);
 
-    for (const c of convitesConv) {
-      if (!c.convidadoAvulsoId) continue;
-      const where: Prisma.PagamentoWhereInput = {
-        vaquinhaId: vaq.id,
-        convidadoAvulsoId: c.convidadoAvulsoId,
-      };
-      const existe = await tx.pagamento.findFirst({ where, select: { id: true } });
-      if (existe) continue;
-
-      await tx.pagamento.create({
-        data: {
-          vaquinhaId: vaq.id,
-          boleiroGrupoId: null,
-          convidadoAvulsoId: c.convidadoAvulsoId,
-          tipoPagador: 'convidado_avulso',
-          valorCobrado: vaq.valorConvidadoAvulso,
-          status: 'pendente',
-        },
+    if (convIds.length > 0) {
+      const pagConv = await tx.pagamento.findMany({
+        where: { vaquinhaId: vaq.id, convidadoAvulsoId: { in: convIds } },
+        select: { convidadoAvulsoId: true },
       });
-      criados++;
+      const comPagConv = new Set(
+        pagConv.map((p) => p.convidadoAvulsoId).filter((id): id is string => id != null),
+      );
+      faltantes.convidadosAvulsos = convIds.filter((id) => !comPagConv.has(id));
     }
-  } else {
-    const convites = await tx.convitePartida.findMany({
-      where: {
-        partidaId: vaq.partidaId,
-        status: 'confirmado',
-      },
-      select: {
-        id: true,
-        tipo: true,
-        boleiroGrupoId: true,
-        convidadoAvulsoId: true,
-      },
-    });
 
-    for (const c of convites) {
-      const where: Prisma.PagamentoWhereInput = { vaquinhaId: vaq.id };
-      if (c.boleiroGrupoId) where.boleiroGrupoId = c.boleiroGrupoId;
-      else if (c.convidadoAvulsoId) where.convidadoAvulsoId = c.convidadoAvulsoId;
-      else continue;
+    return faltantes;
+  }
 
-      const existe = await tx.pagamento.findFirst({ where, select: { id: true } });
-      if (existe) continue;
+  const convites = await tx.convitePartida.findMany({
+    where: {
+      partidaId: vaq.partidaId,
+      status: 'confirmado',
+    },
+    select: {
+      tipo: true,
+      boleiroGrupoId: true,
+      convidadoAvulsoId: true,
+    },
+  });
 
-      const tipoPagador = c.tipo === 'fixo' ? 'fixo' : 'convidado_avulso';
-      const valor = tipoPagador === 'fixo' ? vaq.valorBoleiroFixo : vaq.valorConvidadoAvulso;
+  if (convites.length === 0) return faltantes;
 
-      await tx.pagamento.create({
-        data: {
-          vaquinhaId: vaq.id,
-          boleiroGrupoId: c.boleiroGrupoId ?? null,
-          convidadoAvulsoId: c.convidadoAvulsoId ?? null,
-          tipoPagador,
-          valorCobrado: valor,
-          status: 'pendente',
-        },
+  const boleiroIds = convites
+    .map((c) => c.boleiroGrupoId)
+    .filter((id): id is string => id != null);
+  const convidadoIds = convites
+    .map((c) => c.convidadoAvulsoId)
+    .filter((id): id is string => id != null);
+
+  const [pagBoleiros, pagConvidados] = await Promise.all([
+    boleiroIds.length === 0
+      ? Promise.resolve([])
+      : tx.pagamento.findMany({
+          where: { vaquinhaId: vaq.id, boleiroGrupoId: { in: boleiroIds } },
+          select: { boleiroGrupoId: true },
+        }),
+    convidadoIds.length === 0
+      ? Promise.resolve([])
+      : tx.pagamento.findMany({
+          where: { vaquinhaId: vaq.id, convidadoAvulsoId: { in: convidadoIds } },
+          select: { convidadoAvulsoId: true },
+        }),
+  ]);
+
+  const comPagBoleiro = new Set(
+    pagBoleiros.map((p) => p.boleiroGrupoId).filter((id): id is string => id != null),
+  );
+  const comPagConvidado = new Set(
+    pagConvidados.map((p) => p.convidadoAvulsoId).filter((id): id is string => id != null),
+  );
+
+  for (const c of convites) {
+    if (c.boleiroGrupoId) {
+      if (comPagBoleiro.has(c.boleiroGrupoId)) continue;
+      faltantes.porPartida.push({
+        boleiroGrupoId: c.boleiroGrupoId,
+        convidadoAvulsoId: null,
+        tipoPagador: 'fixo',
+        valorCobrado: vaq.valorBoleiroFixo,
       });
-      criados++;
+      continue;
+    }
+    if (c.convidadoAvulsoId) {
+      if (comPagConvidado.has(c.convidadoAvulsoId)) continue;
+      faltantes.porPartida.push({
+        boleiroGrupoId: null,
+        convidadoAvulsoId: c.convidadoAvulsoId,
+        tipoPagador: 'convidado_avulso',
+        valorCobrado: vaq.valorConvidadoAvulso,
+      });
     }
   }
 
+  return faltantes;
+}
+
+function temPagamentosFaltantes(faltantes: PagamentosFaltantes): boolean {
+  return (
+    faltantes.fixos.length > 0 ||
+    faltantes.convidadosAvulsos.length > 0 ||
+    faltantes.porPartida.length > 0
+  );
+}
+
+async function criarPagamentosFaltantes(
+  tx: TxClient,
+  vaq: VaquinhaSync,
+  faltantes: PagamentosFaltantes,
+): Promise<number> {
+  const rows: Prisma.PagamentoCreateManyInput[] = [];
+
+  for (const boleiroGrupoId of faltantes.fixos) {
+    rows.push({
+      vaquinhaId: vaq.id,
+      boleiroGrupoId,
+      convidadoAvulsoId: null,
+      tipoPagador: 'fixo',
+      valorCobrado: vaq.valorBoleiroFixo,
+      status: 'pendente',
+    });
+  }
+
+  for (const convidadoAvulsoId of faltantes.convidadosAvulsos) {
+    rows.push({
+      vaquinhaId: vaq.id,
+      boleiroGrupoId: null,
+      convidadoAvulsoId,
+      tipoPagador: 'convidado_avulso',
+      valorCobrado: vaq.valorConvidadoAvulso,
+      status: 'pendente',
+    });
+  }
+
+  for (const p of faltantes.porPartida) {
+    rows.push({
+      vaquinhaId: vaq.id,
+      boleiroGrupoId: p.boleiroGrupoId,
+      convidadoAvulsoId: p.convidadoAvulsoId,
+      tipoPagador: p.tipoPagador,
+      valorCobrado: p.valorCobrado,
+      status: 'pendente',
+    });
+  }
+
+  if (rows.length === 0) return 0;
+
+  const res = await tx.pagamento.createMany({ data: rows });
+  return res.count;
+}
+
+async function marcarInadimplentes(
+  tx: TxClient,
+  vaq: VaquinhaSync,
+): Promise<number> {
   let marcadosInadimplente = 0;
   const now = Date.now();
+  const partida = vaq.partida;
 
   if (vaq.tipo === 'mensalidade') {
     if (vaq.dataLimitePagamento && vaq.dataLimitePagamento.getTime() < now) {
@@ -242,6 +400,90 @@ export async function sincronizarPagamentos(
     });
     marcadosInadimplente = res.count;
   }
+
+  return marcadosInadimplente;
+}
+
+/** Checagem leve (contagens) antes da sync completa — evita queries extras na leitura. */
+export async function precisaSincronizarPagamentos(
+  tx: TxClient,
+  vaquinhaId: string,
+): Promise<boolean> {
+  const vaq = await tx.vaquinha.findUnique({
+    where: { id: vaquinhaId },
+    select: {
+      id: true,
+      partidaId: true,
+      tipo: true,
+      mesReferencia: true,
+      partida: {
+        select: {
+          grupoId: true,
+          dataHora: true,
+          grupo: { select: { criadoEm: true } },
+        },
+      },
+    },
+  });
+  if (!vaq) return false;
+
+  if (vaq.tipo === 'mensalidade') {
+    const mesRef = vaq.mesReferencia ?? mesReferenciaBr(vaq.partida.dataHora);
+    const grupoCriadoEm = vaq.partida.grupo.criadoEm;
+
+    const fixos = await tx.boleiroGrupo.findMany({
+      where: { grupoId: vaq.partida.grupoId, status: 'ativo' },
+      select: { id: true, criadoEm: true },
+    });
+    const fixosElegiveis = fixos.filter((f) =>
+      boleiroElegivelMensalidadeMes(mesRef, grupoCriadoEm, f.criadoEm),
+    ).length;
+
+    const [pagFixosVaquinha, convConfirmados, pagConvVaquinha] = await Promise.all([
+      tx.pagamento.count({ where: { vaquinhaId: vaq.id, tipoPagador: 'fixo' } }),
+      tx.convitePartida.count({
+        where: {
+          partidaId: vaq.partidaId,
+          tipo: 'convidado_avulso',
+          status: 'confirmado',
+          convidadoAvulsoId: { not: null },
+        },
+      }),
+      tx.pagamento.count({ where: { vaquinhaId: vaq.id, tipoPagador: 'convidado_avulso' } }),
+    ]);
+
+    if (pagFixosVaquinha < fixosElegiveis) return true;
+    if (pagConvVaquinha < convConfirmados) return true;
+    return false;
+  }
+
+  const [convConfirmados, pagamentos] = await Promise.all([
+    tx.convitePartida.count({ where: { partidaId: vaq.partidaId, status: 'confirmado' } }),
+    tx.pagamento.count({ where: { vaquinhaId: vaq.id } }),
+  ]);
+  return pagamentos < convConfirmados;
+}
+
+/** Atualiza status inadimplente quando o prazo venceu (leve; seguro em leituras). */
+export async function aplicarInadimplenciaVaquinha(
+  tx: TxClient,
+  vaquinhaId: string,
+): Promise<number> {
+  const vaq = await carregarVaquinhaSync(tx, vaquinhaId);
+  if (!vaq) return 0;
+  return marcarInadimplentes(tx, vaq);
+}
+
+export async function sincronizarPagamentos(
+  tx: TxClient,
+  vaquinhaId: string,
+): Promise<{ criados: number; marcadosInadimplente: number }> {
+  const vaq = await carregarVaquinhaSync(tx, vaquinhaId);
+  if (!vaq) return { criados: 0, marcadosInadimplente: 0 };
+
+  const faltantes = await calcularPagamentosFaltantes(tx, vaq);
+  const criados = await criarPagamentosFaltantes(tx, vaq, faltantes);
+  const marcadosInadimplente = await marcarInadimplentes(tx, vaq);
 
   return { criados, marcadosInadimplente };
 }

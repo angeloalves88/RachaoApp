@@ -82,6 +82,7 @@ export async function addConvidadoAvulso(partidaId: string, input: ConvidadoAvul
   return apiFetch<{
     convite: { id: string };
     convidadoAvulso: { id: string; nome: string };
+    whatsappLink?: string | null;
   }>(`/api/partidas/${partidaId}/convidados-avulsos`, {
     method: 'POST',
     token: await token(),

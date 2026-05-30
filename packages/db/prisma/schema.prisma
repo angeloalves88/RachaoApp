@@ -149,14 +149,18 @@ model Grupo {
 
   // Tipo de cobranca padrao (pode ser sobrescrito por partida)
   tipoCobrancaPadrao String? // por_partida | mensalidade
+  /// Valor padrao para convidados avulsos (prefill no wizard)
+  valorConvidadoPadrao Decimal? @db.Decimal(10, 2)
 
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 
   // Relacionamentos
-  presidentes GrupoPresidente[]
-  boleiros    BoleiroGrupo[]
-  partidas    Partida[]
+  presidentes      GrupoPresidente[]
+  boleiros         BoleiroGrupo[]
+  partidas         Partida[]
+  convitesBoleiro  ConviteBoleiro[]
+  convidadosGrupo  ConvidadoGrupo[]
 
   @@index([nome])
   @@index([status])
@@ -188,6 +192,7 @@ model ConvidadoAvulso {
   apelido  String?
   /// GOL | ZAG | MEI | ATA
   posicao  String?
+  fotoUrl  String?
 
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
@@ -197,8 +202,27 @@ model ConvidadoAvulso {
   convites      ConvitePartida[]
   pagamentos    Pagamento[]
   timeBoleiros  TimeBoleiro[]
+  grupos        ConvidadoGrupo[]
 
   @@index([celular])
+}
+
+/// Pool de convidados avulsos por grupo (lista de espera do grupo).
+model ConvidadoGrupo {
+  id                String   @id @default(cuid())
+  grupoId           String
+  convidadoAvulsoId String
+  /// lista_espera | promovido | removido
+  status            String   @default("lista_espera")
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  grupo     Grupo           @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  convidado ConvidadoAvulso @relation(fields: [convidadoAvulsoId], references: [id], onDelete: Cascade)
+
+  @@unique([grupoId, convidadoAvulsoId])
+  @@index([grupoId, status])
 }
 
 // -----------------------------------------------------------------------------
@@ -216,6 +240,7 @@ model BoleiroGrupo {
   posicao String?
   celular String
   email   String?
+  fotoUrl String?
 
   /// ativo | arquivado
   status   String   @default("ativo")
@@ -229,10 +254,35 @@ model BoleiroGrupo {
   convites   ConvitePartida[]
   timesBoleiro TimeBoleiro[]
   pagamentos Pagamento[]
+  conviteBoleiro ConviteBoleiro?
 
   @@unique([grupoId, celular])
   @@index([grupoId])
   @@index([celular])
+}
+
+/// Convite para boleiro completar cadastro publico (foto + dados).
+model ConviteBoleiro {
+  id             String   @id @default(cuid())
+  grupoId        String
+  token          String   @unique @default(cuid())
+  tokenExpiresAt DateTime
+  celular        String
+  email          String?
+  /// whatsapp | email | sms
+  canalPreferido String   @default("whatsapp")
+  /// pendente | concluido | expirado
+  status         String   @default("pendente")
+  boleiroGrupoId String?  @unique
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  grupo        Grupo         @relation(fields: [grupoId], references: [id], onDelete: Cascade)
+  boleiroGrupo BoleiroGrupo? @relation(fields: [boleiroGrupoId], references: [id])
+
+  @@index([grupoId])
+  @@index([token])
 }
 
 // -----------------------------------------------------------------------------
@@ -488,6 +538,7 @@ model Time {
   partidaId String
   nome      String
   cor       String
+  logoUrl   String?
 
   // Resultado final (preenchido ao encerrar)
   golsFinal Int? @default(0)

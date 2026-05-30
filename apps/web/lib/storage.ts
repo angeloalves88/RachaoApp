@@ -73,3 +73,71 @@ export async function uploadAvatar(file: File, usuarioId: string): Promise<strin
   const { data } = supabase.storage.from('avatares').getPublicUrl(path);
   return data.publicUrl;
 }
+
+export async function uploadGrupoFoto(file: File, grupoId: string): Promise<string> {
+  validarArquivo(file);
+  const supabase = createSupabaseBrowserClient();
+  const path = `${grupoId}/${gerarNome('grupo', file)}`;
+  const { error } = await supabase.storage
+    .from('grupos-fotos')
+    .upload(path, file, { cacheControl: '3600', upsert: false });
+  if (error) throw new UploadError('storage', error.message);
+  const { data } = supabase.storage.from('grupos-fotos').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function uploadTimeLogo(file: File, partidaId: string, timeIndex: number): Promise<string> {
+  validarArquivo(file);
+  const supabase = createSupabaseBrowserClient();
+  const path = `${partidaId}/time-${timeIndex}-${gerarNome('logo', file)}`;
+  const { error } = await supabase.storage
+    .from('times-logos')
+    .upload(path, file, { cacheControl: '3600', upsert: true });
+  if (error) throw new UploadError('storage', error.message);
+  const { data } = supabase.storage.from('times-logos').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+/** Logo do time no wizard (antes da partida existir) — pasta = grupoId. */
+export async function uploadTimeLogoDraft(
+  file: File,
+  grupoId: string,
+  timeIndex: number,
+): Promise<string> {
+  validarArquivo(file);
+  const supabase = createSupabaseBrowserClient();
+  const path = `${grupoId}/draft-time-${timeIndex}-${gerarNome('logo', file)}`;
+  const { error } = await supabase.storage
+    .from('times-logos')
+    .upload(path, file, { cacheControl: '3600', upsert: true });
+  if (error) throw new UploadError('storage', error.message);
+  const { data } = supabase.storage.from('times-logos').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function uploadBoleiroFotoPublic(
+  token: string,
+  file: File,
+): Promise<string> {
+  validarArquivo(file);
+  const base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(',')[1] ?? '');
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://127.0.0.1:3333'}/api/convites-boleiro/publico/${token}/foto`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageBase64: base64, mimeType: file.type }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new UploadError('storage', (err as { message?: string }).message ?? 'Falha no upload');
+  }
+  const data = (await res.json()) as { fotoUrl: string };
+  return data.fotoUrl;
+}

@@ -107,6 +107,7 @@ export const grupoCreateSchema = z.object({
   fotoUrl: z.string().url().optional().nullable(),
   descricao: z.string().trim().max(200).optional().nullable(),
   tipoCobrancaPadrao: z.enum(TIPOS_COBRANCA).optional().nullable(),
+  valorConvidadoPadrao: z.number().nonnegative().max(100000).optional().nullable(),
 });
 export type GrupoCreateInput = z.infer<typeof grupoCreateSchema>;
 
@@ -160,6 +161,8 @@ export const boleiroCreateSchema = z
       .optional()
       .default(''),
     email: emailSchema.optional().nullable(),
+    convidadoRefId: z.string().min(1).optional().nullable(),
+    fotoUrl: z.string().url().optional().nullable(),
   })
   .refine((d) => (d.celular && d.celular.length === 11) || !!d.email, {
     message: 'Informe WhatsApp ou e-mail para poder enviar convites',
@@ -182,6 +185,7 @@ export const boleiroUpdateSchema = z
       .optional(),
     email: emailSchema.optional().nullable(),
     status: z.enum(STATUS_BOLEIRO).optional(),
+    fotoUrl: z.string().url().optional().nullable(),
   })
   .refine(
     (d) =>
@@ -192,6 +196,49 @@ export const boleiroUpdateSchema = z
     { message: 'Informe WhatsApp ou e-mail', path: ['celular'] },
   );
 export type BoleiroUpdateInput = z.infer<typeof boleiroUpdateSchema>;
+
+/** Convite de boleiro para cadastro publico. */
+export const conviteBoleiroCreateSchema = z
+  .object({
+    celular: z
+      .string()
+      .trim()
+      .transform((v) => v.replace(/\D/g, ''))
+      .refine((v) => v.length === 0 || v.length === 11, {
+        message: 'Celular deve ter 11 dígitos',
+      })
+      .optional()
+      .default(''),
+    email: emailSchema.optional().nullable(),
+    canalPreferido: z.enum(['whatsapp', 'email', 'sms']).default('whatsapp'),
+  })
+  .refine((d) => (d.celular && d.celular.length === 11) || !!d.email, {
+    message: 'Informe WhatsApp ou e-mail',
+    path: ['celular'],
+  });
+export type ConviteBoleiroCreateInput = z.infer<typeof conviteBoleiroCreateSchema>;
+
+export const conviteBoleiroCompletarSchema = z.object({
+  nome: z.string().trim().min(2, 'Informe o nome completo').max(80),
+  apelido: z.string().trim().max(40).optional().nullable(),
+  posicao: z.enum(POSICOES).optional().nullable(),
+  fotoUrl: z.string().url().optional().nullable(),
+});
+export type ConviteBoleiroCompletarInput = z.infer<typeof conviteBoleiroCompletarSchema>;
+
+export const convidadoAvulsoUpdateSchema = z.object({
+  nome: z.string().trim().min(2).max(80).optional(),
+  apelido: z.string().trim().max(40).optional().nullable(),
+  posicao: z.enum(POSICOES).optional().nullable(),
+  celular: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/\D/g, ''))
+    .refine((v) => v.length === 11, { message: 'Celular deve ter 11 dígitos' })
+    .optional(),
+  fotoUrl: z.string().url().optional().nullable(),
+});
+export type ConvidadoAvulsoUpdateInput = z.infer<typeof convidadoAvulsoUpdateSchema>;
 
 /**
  * Schema legado para compat (boleiro = create).
@@ -292,6 +339,9 @@ export const convidadoAvulsoCreateSchema = z
   });
 export type ConvidadoAvulsoCreateInput = z.infer<typeof convidadoAvulsoCreateSchema>;
 
+export const convidadoGrupoCreateSchema = convidadoAvulsoCreateSchema;
+export type ConvidadoGrupoCreateInput = z.infer<typeof convidadoGrupoCreateSchema>;
+
 /**
  * Vaquinha embutida na criacao da partida (opcional).
  */
@@ -372,6 +422,7 @@ export type CorTime = (typeof CORES_TIME)[number];
 export const timeMetaCreateSchema = z.object({
   nome: z.string().trim().min(1).max(40),
   cor: z.enum(CORES_TIME),
+  logoUrl: z.string().url().optional().nullable(),
 });
 export type TimeMetaCreateInput = z.infer<typeof timeMetaCreateSchema>;
 
@@ -423,6 +474,21 @@ export const partidaCreateSchema = partidaCreateFields.superRefine((data, ctx) =
         path: ['reservasPorTime'],
         message: 'Com 0 titulares, reservas são ilimitadas — use reservasPorTime = 0',
       });
+    }
+    const temConvidados = (data.convidadosAvulsos?.length ?? 0) > 0;
+    const vaqAtiva = !!data.vaquinha;
+    if (temConvidados && vaqAtiva) {
+      const valorConv =
+        data.vaquinha!.valorConvidadoAvulso > 0
+          ? data.vaquinha!.valorConvidadoAvulso
+          : data.vaquinha!.valorBoleiroFixo;
+      if (valorConv <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['vaquinha', 'valorConvidadoAvulso'],
+          message: 'Informe o valor fixo do convidado avulso',
+        });
+      }
     }
   });
 export type PartidaCreateInput = z.infer<typeof partidaCreateSchema>;

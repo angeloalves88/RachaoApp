@@ -65,8 +65,8 @@ export interface WizardState {
   data: string;
   hora: string;
   numTimes: number;
-  /** Nome e cor de cada time (length = numTimes). */
-  timesMeta: Array<{ nome: string; cor: CorTime }>;
+  /** Nome, cor e logo opcional de cada time (length = numTimes). */
+  timesMeta: Array<{ nome: string; cor: CorTime; logoUrl?: string | null }>;
   boleirosPorTime: number;
   reservasPorTime: number;
   numPartidas: number;
@@ -296,6 +296,9 @@ export function validateStep(state: WizardState, step: number): string | null {
       const nConv = state.convidados.length;
       const valorConv =
         state.vaquinha.mesmoValor ? state.vaquinha.valorBoleiroFixo : state.vaquinha.valorConvidadoAvulso;
+      if (nConv > 0 && valorConv <= 0) {
+        return 'Defina o valor fixo do convidado avulso (ou marque "mesmo valor")';
+      }
       if (state.tipoCobrancaPartida === 'mensalidade' && nConv > 0 && valorConv <= 0) {
         return 'Na mensalidade, defina a taxa do convidado avulso (ou marque "mesmo valor")';
       }
@@ -310,14 +313,15 @@ export function validateStep(state: WizardState, step: number): string | null {
 
 export function buildTimesMeta(
   numTimes: number,
-  prev: Array<{ nome: string; cor: CorTime }>,
-): Array<{ nome: string; cor: CorTime }> {
+  prev: Array<{ nome: string; cor: CorTime; logoUrl?: string | null }>,
+): Array<{ nome: string; cor: CorTime; logoUrl?: string | null }> {
   return Array.from({ length: numTimes }, (_, i) => {
     const existing = prev[i];
     if (existing?.nome?.trim()) return existing;
     return {
       nome: `Time ${i + 1}`,
       cor: CORES_TIME[i % CORES_TIME.length]!,
+      logoUrl: existing?.logoUrl ?? null,
     };
   });
 }

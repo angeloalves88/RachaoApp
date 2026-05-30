@@ -9,6 +9,7 @@ import {
   partidaCreateSchema,
   partidaUpdateSchema,
   reenvioConvitesSchema,
+  type TimeMetaCreateInput,
 } from '@rachao/shared/zod';
 import { STATUS_PARTIDA } from '@rachao/shared/enums';
 import { getGrupoAcesso } from '../lib/grupos.js';
@@ -19,6 +20,11 @@ import { agregarResumo } from '../lib/resumo.js';
 import { ensureShareLink, resolveShareLink, type ShareLinkTipo } from '../lib/share-links.js';
 import { buildWhatsAppLink, enviarConviteEmail } from '../lib/email.js';
 import {
+  enviarMensagemConvitePartida,
+  montarTextoConvitePartida,
+} from '../lib/mensagens-convite.js';
+import { upsertConvidadoNoPool } from '../lib/convidados-grupo.js';
+import {
   formatarDataPartidaBr,
   promoverListaEspera,
   resolveContatoConvite,
@@ -28,6 +34,7 @@ import { env } from '../env.js';
 import {
   fimDoDiaDataHora,
   mesReferenciaBr,
+  sincronizarPagamentos,
   ultimoInstanteMesReferencia,
 } from '../lib/vaquinha.js';
 
@@ -151,11 +158,12 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
     });
     const tempoTotal = data.numPartidas * data.tempoPartida;
 
-    const timesMeta =
+    const timesMeta: TimeMetaCreateInput[] =
       data.times ??
       Array.from({ length: data.numTimes }, (_, i) => ({
         nome: `Time ${i + 1}`,
         cor: CORES_TIME[i % CORES_TIME.length]!,
+        logoUrl: null,
       }));
 
     // Valida boleiros: todos pertencem ao grupo e estao ativos.
@@ -229,6 +237,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
               create: timesMeta.map((t) => ({
                 nome: t.nome,
                 cor: t.cor,
+                logoUrl: t.logoUrl ?? null,
                 golsFinal: 0,
               })),
             },
@@ -266,29 +275,7 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         for (const c of data.convidadosAvulsos) {
-          let convidado = null as Awaited<ReturnType<typeof tx.convidadoAvulso.findUnique>>;
-          if (c.convidadoAvulsoId) {
-            convidado = await tx.convidadoAvulso.findUnique({
-              where: { id: c.convidadoAvulsoId },
-            });
-            if (!convidado) {
-              throw new Error('Convidado avulso nao encontrado');
-            }
-          } else {
-            convidado = c.celular
-              ? await tx.convidadoAvulso.findUnique({ where: { celular: c.celular } })
-              : null;
-            if (!convidado) {
-              convidado = await tx.convidadoAvulso.create({
-                data: {
-                  nome: c.nome!.trim(),
-                  apelido: c.apelido ?? null,
-                  posicao: c.posicao ?? null,
-                  celular: c.celular || `email:${c.email ?? ''}`,
-                },
-              });
-            }
-          }
+          const convidado = await upsertConvidadoNoPool(tx, data.grupoId, c);
           const dentroDaCapacidade =
             capacidade === null ||
             convites.filter((c2) => c2.status !== 'lista_espera').length < capacidade;
@@ -332,6 +319,9 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
             },
           });
           vaquinha = { id: v.id };
+          if (tipoVaq === 'mensalidade') {
+            await sincronizarPagamentos(tx, v.id);
+          }
         }
 
         out.push({
@@ -670,10 +660,21 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
       const partida = await fastify.prisma.partida.findUnique({
         where: { id: params.data.id },
         select: {
+          id: true,
           grupoId: true,
+          dataHora: true,
           numTimes: true,
           boleirosPorTime: true,
           reservasPorTime: true,
+          localLivre: true,
+          grupo: { select: { nome: true } },
+          estadio: { select: { nome: true } },
+          vaquinha: {
+            select: {
+              valorConvidadoAvulso: true,
+              chavePix: true,
+            },
+          },
         },
       });
       if (!partida) return notFound(reply);
@@ -708,32 +709,15 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       let convidado = null as Awaited<ReturnType<typeof fastify.prisma.convidadoAvulso.findUnique>>;
-      if (c.convidadoAvulsoId) {
-        convidado = await fastify.prisma.convidadoAvulso.findUnique({
-          where: { id: c.convidadoAvulsoId },
-        });
-        if (!convidado) return notFound(reply, 'Convidado avulso nao encontrado');
-      } else {
-        convidado = c.celular
-          ? await fastify.prisma.convidadoAvulso.findUnique({ where: { celular: c.celular } })
-          : null;
-        if (!convidado) {
-          convidado = await fastify.prisma.convidadoAvulso.create({
-            data: {
-              nome: c.nome!.trim(),
-              apelido: c.apelido ?? null,
-              posicao: c.posicao ?? null,
-              celular: c.celular || `email:${c.email ?? ''}`,
-            },
-          });
-        }
-      }
+      convidado = await fastify.prisma.$transaction((tx) =>
+        upsertConvidadoNoPool(tx, partida.grupoId, c),
+      );
 
       const dentroDaCapacidade = capacidade === null || usadas < capacidade;
       const convite = await fastify.prisma.convitePartida.create({
         data: {
           partidaId: params.data.id,
-          convidadoAvulsoId: convidado.id,
+          convidadoAvulsoId: convidado!.id,
           tipo: 'convidado_avulso',
           tokenExpiresAt: new Date(Date.now() + TOKEN_TTL_MS),
           status: dentroDaCapacidade ? 'confirmado' : 'lista_espera',
@@ -741,7 +725,37 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
 
-      return reply.code(201).send({ convite, convidadoAvulso: convidado });
+      const valorConv = partida.vaquinha
+        ? Number(partida.vaquinha.valorConvidadoAvulso)
+        : null;
+      const localPartida = partida.estadio?.nome ?? partida.localLivre ?? null;
+      const celular =
+        convidado!.celular.startsWith('email:') ? null : convidado!.celular;
+      const email =
+        convidado!.celular.startsWith('email:')
+          ? convidado!.celular.slice(6)
+          : null;
+
+      const mensagem = await enviarMensagemConvitePartida(
+        {
+          nomeDestinatario: convidado!.nome,
+          nomeGrupo: partida.grupo.nome,
+          dataHora: partida.dataHora,
+          local: localPartida,
+          token: convite.token,
+          celular,
+          email,
+          valorConvidado: valorConv,
+          chavePix: partida.vaquinha?.chavePix ?? null,
+        },
+        fastify.log,
+      );
+
+      return reply.code(201).send({
+        convite,
+        convidadoAvulso: convidado,
+        whatsappLink: mensagem.whatsappLink,
+      });
     },
   );
 
@@ -878,6 +892,13 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         include: {
           grupo: { select: { id: true, nome: true } },
           estadio: { select: { nome: true } },
+          vaquinha: {
+            select: {
+              valorConvidadoAvulso: true,
+              valorBoleiroFixo: true,
+              chavePix: true,
+            },
+          },
         },
       });
       if (!partida) return notFound(reply);
@@ -922,7 +943,20 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
                 localPartida,
                 linkConfirmacao: `${env.WEB_URL}/confirmar/${c.token}`,
                 variant: 'lembrete',
-                mensagemPersonalizada: body.data.mensagemPersonalizada,
+                mensagemPersonalizada:
+                  body.data.mensagemPersonalizada ??
+                  montarTextoConvitePartida({
+                    nomeDestinatario: dest.nome,
+                    nomeGrupo: partida.grupo.nome,
+                    dataHora: partida.dataHora,
+                    local: localPartida,
+                    token: c.token,
+                    valorConvidado:
+                      c.tipo === 'convidado_avulso' && partida.vaquinha
+                        ? Number(partida.vaquinha.valorConvidadoAvulso)
+                        : null,
+                    chavePix: partida.vaquinha?.chavePix ?? null,
+                  }),
               },
               fastify.log,
             );
@@ -931,10 +965,23 @@ const partidasRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         if (enviarWhatsapp) {
-          const link = `${env.WEB_URL}/confirmar/${c.token}`;
+          const valorConv =
+            c.tipo === 'convidado_avulso' && partida.vaquinha
+              ? Number(partida.vaquinha.valorConvidadoAvulso)
+              : partida.vaquinha
+                ? Number(partida.vaquinha.valorBoleiroFixo)
+                : null;
           const texto =
             body.data.mensagemPersonalizada ??
-            `E aí, ${dest.nome}! O ${partida.grupo.nome} agendou um rachão em ${dataFmt}. Confirma aqui: ${link}`;
+            montarTextoConvitePartida({
+              nomeDestinatario: dest.nome,
+              nomeGrupo: partida.grupo.nome,
+              dataHora: partida.dataHora,
+              local: localPartida,
+              token: c.token,
+              valorConvidado: c.tipo === 'convidado_avulso' ? valorConv : null,
+              chavePix: partida.vaquinha?.chavePix ?? null,
+            });
           const url = dest.celular ? buildWhatsAppLink(dest.celular, texto) : null;
           if (!url) {
             semContatoWhatsapp++;

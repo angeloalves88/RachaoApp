@@ -22,6 +22,7 @@ export interface GrupoListItem {
   proximaPartida: { id: string; dataHora: string; status: string } | null;
   ultimaPartida: string | null;
   tipoCobrancaPadrao: string | null;
+  valorConvidadoPadrao: number | null;
 }
 
 export interface GrupoDetalhe {
@@ -33,6 +34,7 @@ export interface GrupoDetalhe {
   descricao: string | null;
   status: 'ativo' | 'arquivado';
   tipoCobrancaPadrao: string | null;
+  valorConvidadoPadrao: number | null;
   criadoEm: string;
   atualizadoEm: string;
   papel: Papel;
@@ -60,9 +62,66 @@ export interface BoleiroListItem {
   posicao: 'GOL' | 'ZAG' | 'MEI' | 'ATA' | null;
   celular: string;
   email: string | null;
+  fotoUrl?: string | null;
   status: 'ativo' | 'arquivado';
   criadoEm: string;
   atualizadoEm: string;
+}
+
+export interface ConvidadoGrupoItem {
+  convidadoGrupoId: string;
+  id: string;
+  nome: string;
+  apelido: string | null;
+  posicao: 'GOL' | 'ZAG' | 'MEI' | 'ATA' | null;
+  celular: string;
+  fotoUrl?: string | null;
+  status: string;
+}
+
+export interface GrupoFinanceiroData {
+  grupo: { id: string; nome: string };
+  totais: { arrecadado: number; pendente: number; inadimplente: number };
+  mensalidadeMes: GrupoFinanceiroMensalidadeMes;
+  mensalidades: GrupoFinanceiroLinha[];
+  porPartida: GrupoFinanceiroLinha[];
+  convidados: GrupoFinanceiroLinha[];
+}
+
+export interface GrupoFinanceiroMensalidadeMes {
+  mesReferencia: string;
+  temVaquinha: boolean;
+  valorMensal: number | null;
+  boleiros: GrupoFinanceiroMensalidadeBoleiro[];
+}
+
+export interface GrupoFinanceiroMensalidadeBoleiro {
+  boleiroId: string;
+  nome: string;
+  apelido: string | null;
+  celular: string;
+  fotoUrl: string | null;
+  pagamentoId: string | null;
+  status: 'sem_cobranca' | 'pendente' | 'pago' | 'inadimplente';
+  valorCobrado: number | null;
+}
+
+export interface GrupoFinanceiroLinha {
+  id: string;
+  status: string;
+  tipoPagador: string;
+  valorCobrado: number;
+  dataPagamento: string | null;
+  observacao: string | null;
+  pagador: {
+    kind: 'fixo' | 'convidado_avulso';
+    id: string;
+    nome: string;
+    apelido: string | null;
+    celular: string;
+  };
+  vaquinha: { id: string; tipo: string; mesReferencia: string | null; chavePix: string };
+  partida: { id: string; dataHora: string; status: string; tipoCobranca: string };
 }
 
 export interface BoleiroFicha {
@@ -269,6 +328,7 @@ export interface DashboardInsights {
   partidasPrevistas: number;
   partidasEncerradas: number;
   mediaGolsPorPartida: number;
+  mediaGolsPorJogo: number;
   topArtilheiros: DashboardRankingJogador[];
   topCartoes: Array<DashboardRankingJogador & { amarelos: number; vermelhos: number }>;
   timeMaisVenceu: { nome: string; cor: string; vitorias: number } | null;

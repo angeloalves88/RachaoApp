@@ -5,7 +5,7 @@ import { getGrupoAcesso } from '../lib/grupos.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { agregarEstatisticasBoleiro } from '../lib/estatisticas-boleiro.js';
 import { sincronizarBoleiroEmPartidasAgendadas } from '../lib/presencas.js';
-import { sincronizarPagamentosPartida } from '../lib/vaquinha.js';
+import { boleiroElegivelMensalidadeMes, sincronizarPagamentosPartida } from '../lib/vaquinha.js';
 
 const grupoIdSchema = z.object({ id: z.string().min(1) });
 const boleiroParamsSchema = z.object({
@@ -115,7 +115,7 @@ const boleirosRoutes: FastifyPluginAsync = async (fastify) => {
 
       const boleiro = await fastify.prisma.boleiroGrupo.findFirst({
         where: { id: params.data.boleiroId, grupoId: params.data.id },
-        select: { id: true },
+        select: { id: true, criadoEm: true, grupo: { select: { criadoEm: true } } },
       });
       if (!boleiro) return notFound(reply);
 
@@ -165,6 +165,11 @@ const boleirosRoutes: FastifyPluginAsync = async (fastify) => {
         .map(mapLinha);
       const mensalidades = pagamentos
         .filter((p) => p.vaquinha.tipo === 'mensalidade')
+        .filter((p) => {
+          const mes = p.vaquinha.mesReferencia;
+          if (!mes) return true;
+          return boleiroElegivelMensalidadeMes(mes, boleiro.grupo.criadoEm, boleiro.criadoEm);
+        })
         .map(mapLinha);
 
       return { porPartida, mensalidades };
@@ -188,11 +193,9 @@ const boleirosRoutes: FastifyPluginAsync = async (fastify) => {
       const parsed = boleiroCreateSchema.safeParse(request.body);
       if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
 
-      const { celular, ...rest } = parsed.data;
+      const { celular, convidadoRefId, fotoUrl, ...rest } = parsed.data;
 
       // Boleiro obrigatoriamente tem celular OU email; o schema valida isso.
-      // O constraint unique e (grupoId, celular). Se nao houver celular, geramos
-      // um placeholder unico baseado no email para manter o constraint.
       const celularFinal = celular && celular.length === 11 ? celular : `email:${rest.email}`;
 
       const existing = await fastify.prisma.boleiroGrupo.findUnique({
@@ -211,6 +214,8 @@ const boleirosRoutes: FastifyPluginAsync = async (fastify) => {
             posicao: rest.posicao ?? null,
             email: rest.email ?? null,
             celular: celularFinal,
+            convidadoRefId: convidadoRefId ?? null,
+            fotoUrl: fotoUrl ?? null,
           },
         });
         const sync = await sincronizarBoleiroEmPartidasAgendadas(tx, {

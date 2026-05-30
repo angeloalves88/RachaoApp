@@ -57,9 +57,26 @@ interface Props {
     nome: string;
     totalBoleiros: number;
     tipoCobrancaPadrao: string | null;
+    valorConvidadoPadrao: number | null;
   }>;
   initialGrupoId: string;
   initialEstadioId?: string | null;
+}
+
+function applyGrupoDefaults(
+  g: Pick<Props['gruposDisponiveis'][number], 'tipoCobrancaPadrao' | 'valorConvidadoPadrao'>,
+) {
+  const tPadrao: TipoCobranca = g.tipoCobrancaPadrao === 'mensalidade' ? 'mensalidade' : 'por_partida';
+  const cur = useWizardStore.getState();
+  const valorConv = g.valorConvidadoPadrao ?? 0;
+  useWizardStore.getState().patch({
+    tipoCobrancaPartida: tPadrao,
+    vaquinha: {
+      ...cur.vaquinha,
+      tipoCobranca: tPadrao,
+      ...(valorConv > 0 ? { valorConvidadoAvulso: valorConv, mesmoValor: false } : {}),
+    },
+  });
 }
 
 export function WizardPartidaClient({
@@ -78,15 +95,11 @@ export function WizardPartidaClient({
     const valido = gruposDisponiveis.some((g) => g.id === state.grupoId);
     if (!valido && initialGrupoId) {
       const g0 = gruposDisponiveis.find((g) => g.id === initialGrupoId);
-      const tPadrao: TipoCobranca =
-        g0?.tipoCobrancaPadrao === 'mensalidade' ? 'mensalidade' : 'por_partida';
-      const cur = useWizardStore.getState();
       state.patch({
         grupoId: initialGrupoId,
         currentStep: 0,
-        tipoCobrancaPartida: tPadrao,
-        vaquinha: { ...cur.vaquinha, tipoCobranca: tPadrao },
       });
+      if (g0) applyGrupoDefaults(g0);
     }
     if (initialEstadioId) {
       state.patch({
@@ -294,14 +307,8 @@ export function WizardPartidaClient({
             onChange={(e) => {
               const id = e.target.value;
               const g = gruposDisponiveis.find((x) => x.id === id);
-              const tPadrao: TipoCobranca =
-                g?.tipoCobrancaPadrao === 'mensalidade' ? 'mensalidade' : 'por_partida';
-              const cur = useWizardStore.getState();
-              useWizardStore.getState().patch({
-                grupoId: id,
-                tipoCobrancaPartida: tPadrao,
-                vaquinha: { ...cur.vaquinha, tipoCobranca: tPadrao },
-              });
+              useWizardStore.getState().patch({ grupoId: id });
+              if (g) applyGrupoDefaults(g);
             }}
             className="flex h-11 w-full rounded-md border border-border bg-surface-2 px-3 text-sm text-foreground"
           >

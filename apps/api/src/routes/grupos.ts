@@ -88,6 +88,8 @@ const gruposRoutes: FastifyPluginAsync = async (fastify) => {
         proximaPartida: g.partidas[0] ?? null,
         ultimaPartida: ultimaByGrupo.get(g.id) ?? null,
         tipoCobrancaPadrao: g.tipoCobrancaPadrao,
+        valorConvidadoPadrao:
+          g.valorConvidadoPadrao != null ? Number(g.valorConvidadoPadrao) : null,
       })),
     };
   });
@@ -143,6 +145,8 @@ const gruposRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         grupo: {
           ...grupo,
+          valorConvidadoPadrao:
+            grupo.valorConvidadoPadrao != null ? Number(grupo.valorConvidadoPadrao) : null,
           papel: acesso.papel,
           totalBoleirosAtivos: grupo._count.boleiros,
           totalPartidas: grupo._count.partidas,

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Upload } from 'lucide-react';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api';
@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Segmented } from '@/components/ui/segmented';
 import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/ui/spinner';
+import { uploadGrupoFoto, UploadError } from '@/lib/storage';
 import type { GrupoDetalhe } from '@/lib/types';
 
 const ESPORTE_LABEL: Record<EsporteGrupo, string> = {
@@ -58,6 +59,7 @@ const formSchema = z.object({
     .max(200, { message: 'Máximo de 200 caracteres' })
     .optional(),
   fotoUrl: z.string().url({ message: 'URL inválida' }).optional().or(z.literal('')),
+  valorConvidadoPadrao: z.string().optional(),
 });
 type FormValues = z.infer<typeof formSchema>;
 
@@ -71,6 +73,7 @@ interface GrupoFormDialogProps {
 export function GrupoFormDialog({ open, onOpenChange, grupo }: GrupoFormDialogProps) {
   const router = useRouter();
   const isEdit = !!grupo;
+  const [uploadingFoto, setUploadingFoto] = useState(false);
 
   const {
     register,
@@ -78,6 +81,7 @@ export function GrupoFormDialog({ open, onOpenChange, grupo }: GrupoFormDialogPr
     control,
     reset,
     watch,
+    setValue,
     formState: { errors, isSubmitting, isValid },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -87,6 +91,7 @@ export function GrupoFormDialog({ open, onOpenChange, grupo }: GrupoFormDialogPr
       nivel: 'casual',
       descricao: '',
       fotoUrl: '',
+      valorConvidadoPadrao: '',
     },
   });
 
@@ -99,6 +104,10 @@ export function GrupoFormDialog({ open, onOpenChange, grupo }: GrupoFormDialogPr
       nivel: (grupo?.nivel as NivelGrupo) ?? 'casual',
       descricao: grupo?.descricao ?? '',
       fotoUrl: grupo?.fotoUrl ?? '',
+      valorConvidadoPadrao:
+        grupo?.valorConvidadoPadrao != null && grupo.valorConvidadoPadrao > 0
+          ? String(grupo.valorConvidadoPadrao)
+          : '',
     });
   }, [open, grupo, reset]);
 
@@ -111,6 +120,10 @@ export function GrupoFormDialog({ open, onOpenChange, grupo }: GrupoFormDialogPr
         ...values,
         descricao: values.descricao || null,
         fotoUrl: values.fotoUrl ? values.fotoUrl : null,
+        valorConvidadoPadrao:
+          values.valorConvidadoPadrao === '' || values.valorConvidadoPadrao == null
+            ? null
+            : Number(values.valorConvidadoPadrao),
       };
       if (isEdit && grupo) {
         await updateGrupo(grupo.id, payload);
@@ -159,11 +172,39 @@ export function GrupoFormDialog({ open, onOpenChange, grupo }: GrupoFormDialogPr
             <Avatar name={nomeValue || 'Grupo'} src={watch('fotoUrl') || undefined} size="xl" />
             <div className="flex-1">
               <Field
-                label="URL da foto (opcional)"
+                label="Logo / foto do grupo"
                 error={errors.fotoUrl?.message}
-                hint="Cole o link de uma imagem (PNG/JPG)."
+                hint={isEdit ? 'Envie uma imagem ou cole uma URL.' : 'Cole o link de uma imagem (PNG/JPG).'}
               >
                 <Input type="url" autoComplete="off" {...register('fotoUrl')} />
+                {isEdit && grupo ? (
+                  <label className="mt-2 inline-flex cursor-pointer items-center gap-2 text-sm text-primary">
+                    {uploadingFoto ? <Spinner size={14} /> : <Upload size={14} />}
+                    Enviar arquivo
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="sr-only"
+                      disabled={uploadingFoto}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setUploadingFoto(true);
+                        try {
+                          const url = await uploadGrupoFoto(file, grupo.id);
+                          setValue('fotoUrl', url);
+                          toast.success('Logo enviado.');
+                        } catch (err) {
+                          toast.error(
+                            err instanceof UploadError ? err.message : 'Falha no upload.',
+                          );
+                        } finally {
+                          setUploadingFoto(false);
+                        }
+                      }}
+                    />
+                  </label>
+                ) : null}
               </Field>
             </div>
           </div>
@@ -220,6 +261,27 @@ export function GrupoFormDialog({ open, onOpenChange, grupo }: GrupoFormDialogPr
               placeholder="Ex.: Rachão das quartas no Parque..."
               {...register('descricao')}
             />
+          </Field>
+
+          <Field
+            label="Valor padrão do convidado avulso"
+            error={errors.valorConvidadoPadrao?.message}
+            hint="Usado na vaquinha/mensalidade quando houver convidados. Deixe vazio se não cobrar convidados."
+          >
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted">
+                R$
+              </span>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                className="pl-9"
+                placeholder="0,00"
+                {...register('valorConvidadoPadrao')}
+              />
+            </div>
           </Field>
 
           {isEdit && grupo ? (

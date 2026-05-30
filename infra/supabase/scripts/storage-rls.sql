@@ -21,8 +21,22 @@ VALUES
     ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]
   ),
   (
-    'avatares',
-    'avatares',
+    'grupos-fotos',
+    'grupos-fotos',
+    true,
+    5242880,
+    ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]
+  ),
+  (
+    'boleiros-fotos',
+    'boleiros-fotos',
+    true,
+    5242880,
+    ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]
+  ),
+  (
+    'times-logos',
+    'times-logos',
     true,
     5242880,
     ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]
@@ -52,6 +66,21 @@ CREATE POLICY "rachao_avatares_select"
   ON storage.objects FOR SELECT
   TO anon, authenticated
   USING (bucket_id = 'avatares');
+
+CREATE POLICY "rachao_grupos_fotos_select"
+  ON storage.objects FOR SELECT
+  TO anon, authenticated
+  USING (bucket_id = 'grupos-fotos');
+
+CREATE POLICY "rachao_boleiros_fotos_select"
+  ON storage.objects FOR SELECT
+  TO anon, authenticated
+  USING (bucket_id = 'boleiros-fotos');
+
+CREATE POLICY "rachao_times_logos_select"
+  ON storage.objects FOR SELECT
+  TO anon, authenticated
+  USING (bucket_id = 'times-logos');
 
 -- Upload: pasta = estadioId; apenas dono do estadio (Usuario.id = auth.uid())
 CREATE POLICY "rachao_estadios_fotos_insert"
@@ -117,3 +146,61 @@ CREATE POLICY "rachao_avatares_delete"
     bucket_id = 'avatares'
     AND (storage.foldername(name))[1] = (SELECT auth.uid())::text
   );
+
+-- Grupos: upload apenas presidentes/co-presidentes do grupo (pasta = grupoId)
+DROP POLICY IF EXISTS "rachao_grupos_fotos_insert" ON storage.objects;
+DROP POLICY IF EXISTS "rachao_grupos_fotos_update" ON storage.objects;
+DROP POLICY IF EXISTS "rachao_grupos_fotos_delete" ON storage.objects;
+
+CREATE POLICY "rachao_grupos_fotos_insert"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'grupos-fotos'
+    AND EXISTS (
+      SELECT 1
+      FROM public."GrupoPresidente" gp
+      WHERE gp."grupoId" = (storage.foldername(name))[1]
+        AND gp."usuarioId" = (SELECT auth.uid())::text
+    )
+  );
+
+CREATE POLICY "rachao_grupos_fotos_update"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (
+    bucket_id = 'grupos-fotos'
+    AND EXISTS (
+      SELECT 1
+      FROM public."GrupoPresidente" gp
+      WHERE gp."grupoId" = (storage.foldername(name))[1]
+        AND gp."usuarioId" = (SELECT auth.uid())::text
+    )
+  );
+
+CREATE POLICY "rachao_grupos_fotos_delete"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'grupos-fotos'
+    AND EXISTS (
+      SELECT 1
+      FROM public."GrupoPresidente" gp
+      WHERE gp."grupoId" = (storage.foldername(name))[1]
+        AND gp."usuarioId" = (SELECT auth.uid())::text
+    )
+  );
+
+-- Times: upload autenticado (presidente da partida)
+DROP POLICY IF EXISTS "rachao_times_logos_insert" ON storage.objects;
+DROP POLICY IF EXISTS "rachao_times_logos_update" ON storage.objects;
+DROP POLICY IF EXISTS "rachao_times_logos_delete" ON storage.objects;
+
+CREATE POLICY "rachao_times_logos_insert"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'times-logos');
+
+CREATE POLICY "rachao_times_logos_update"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (bucket_id = 'times-logos');
+
+CREATE POLICY "rachao_times_logos_delete"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'times-logos');

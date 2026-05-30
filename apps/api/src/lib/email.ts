@@ -158,3 +158,58 @@ function escapeHtml(s: string): string {
 function escapeAttr(s: string): string {
   return escapeHtml(s);
 }
+
+export interface ConviteCadastroBoleiroEmailContext {
+  to: string;
+  nomeGrupo: string;
+  linkCadastro: string;
+}
+
+/**
+ * Envia convite para boleiro completar cadastro publico.
+ */
+export async function enviarConviteCadastroBoleiroEmail(
+  ctx: ConviteCadastroBoleiroEmailContext,
+  log?: FastifyBaseLogger,
+): Promise<SendResult> {
+  const subject = `Complete seu cadastro: ${ctx.nomeGrupo}`;
+  const html = `<!doctype html>
+<html lang="pt-BR">
+  <body style="font-family: system-ui, sans-serif; background:#0f1b2d; color:#e8edf3; padding:24px;">
+    <div style="max-width:520px; margin:0 auto; background:#162236; border-radius:12px; padding:24px;">
+      <h1 style="color:#e8530a;">Voce foi convidado!</h1>
+      <p>O grupo <strong>${escapeHtml(ctx.nomeGrupo)}</strong> quer que voce faca parte da pelada.</p>
+      <p>Complete seu cadastro, envie sua foto e confirme seus dados:</p>
+      <p style="text-align:center; margin:24px 0;">
+        <a href="${escapeAttr(ctx.linkCadastro)}" style="background:#e8530a; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:600;">Completar cadastro</a>
+      </p>
+      <p style="font-size:12px; color:#7a8fa6;">Link: ${escapeHtml(ctx.linkCadastro)}</p>
+    </div>
+  </body>
+</html>`;
+  const text = `Voce foi convidado para ${ctx.nomeGrupo}. Complete seu cadastro: ${ctx.linkCadastro}`;
+
+  const client = getResend();
+  if (!client) {
+    log?.info({ to: ctx.to, link: ctx.linkCadastro }, '[email/simulado] convite cadastro boleiro');
+    return { simulated: true };
+  }
+
+  try {
+    const res = await client.emails.send({
+      from: FROM_DEFAULT,
+      to: ctx.to,
+      subject,
+      html,
+      text,
+    });
+    if (res.error) {
+      log?.warn({ err: res.error, to: ctx.to }, 'Resend retornou erro');
+      return { simulated: false, error: res.error.message };
+    }
+    return { simulated: false, id: res.data?.id };
+  } catch (err) {
+    log?.warn({ err, to: ctx.to }, 'Falha ao enviar convite cadastro boleiro');
+    return { simulated: false, error: (err as Error).message };
+  }
+}

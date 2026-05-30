@@ -30,6 +30,7 @@ export default async function NovaPartidaPage({
         nome: g.nome,
         totalBoleiros: g.totalBoleiros,
         tipoCobrancaPadrao: g.tipoCobrancaPadrao,
+        valorConvidadoPadrao: g.valorConvidadoPadrao,
       }))}
       initialGrupoId={initialGrupoId}
       initialEstadioId={params.estadioId ?? null}
